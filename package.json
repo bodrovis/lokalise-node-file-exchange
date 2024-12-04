@@ -1,0 +1,55 @@
+{
+	"name": "lokalise-file-exchange",
+	"version": "0.0.1",
+	"description": "Exchange translation files with Lokalise TMS",
+	"license": "BSD-3-Clause",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bodrovis/lokalise-node-file-exchange.git"
+	},
+	"keywords": [
+		"api",
+		"node",
+		"typescript",
+		"lokalise",
+		"client",
+		"client library"
+	],
+	"type": "module",
+	"scripts": {
+		"build": "tsup",
+		"test": "vitest run --coverage",
+		"lint": "npx @biomejs/biome check ./",
+		"lint:fix": "npx @biomejs/biome check --write ./",
+		"lint:fix:unsafe": "npx @biomejs/biome check --write --unsafe ./"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.0",
+		"@types/node": "^22.0.2",
+		"@vitest/coverage-istanbul": "^2.0.3",
+		"@vitest/coverage-v8": "^2.0.3",
+		"dotenv": "^16.0.0",
+		"tsup": "^8.3.0",
+		"typescript": "^5.7.0",
+		"vitest": "^2.0.3",
+		"@lokalise/node-api": "^12.8.0",
+		"undici": "^7.0.0"
+	},
+	"bugs": {
+		"url": "https://github.com/bodrovis/lokalise-node-file-exchange/issues"
+	},
+	"homepage": "https://github.com/bodrovis/lokalise-node-file-exchange",
+	"exports": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"directories": {
+		"lib": "./lib",
+		"test": "./test"
+	},
+	"author": "Ilya Krukowski",
+	"engines": {
+		"node": ">=18"
+	}
+}
