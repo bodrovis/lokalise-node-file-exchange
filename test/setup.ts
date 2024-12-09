@@ -6,7 +6,16 @@ import type {
 	Interceptable,
 	MockInterceptor,
 } from "undici/types/mock-interceptor.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 
 export {
 	describe,
@@ -16,6 +25,9 @@ export {
 	setGlobalDispatcher,
 	beforeEach,
 	afterEach,
+	beforeAll,
+	afterAll,
+	vi,
 	type Interceptable,
 	type MockInterceptor,
 };

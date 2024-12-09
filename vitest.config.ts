@@ -11,7 +11,7 @@ export default defineConfig({
 		reporters: isCI ? ["default"] : ["verbose"],
 		coverage: {
 			provider: "istanbul",
-			reporter: isCI ? ["lcov"] : ["html"],
+			reporter: isCI ? ["lcov"] : ["html", "text"],
 			include: ["lib/**"],
 		},
 		typecheck: {
