@@ -26,7 +26,7 @@ export class LokaliseUpload extends LokaliseFileExchange {
 	 * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
 	 */
 	async uploadTranslations(
-		uploadTranslationParams: UploadTranslationParams,
+		uploadTranslationParams: UploadTranslationParams = {},
 	): Promise<{
 		processes: QueuedProcess[];
 		errors: FileUploadError[];
@@ -206,7 +206,15 @@ export class LokaliseUpload extends LokaliseFileExchange {
 
 		// Track pending processes using a set
 		const pendingProcessIds = new Set(
-			processes.filter((p) => p.status !== "finished").map((p) => p.process_id),
+			processes
+				.filter(
+					(p) =>
+						p.status === "queued" ||
+						p.status === "pre_processing" ||
+						p.status === "running" ||
+						p.status === "post_processing",
+				)
+				.map((p) => p.process_id),
 		);
 
 		while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
@@ -219,7 +227,11 @@ export class LokaliseUpload extends LokaliseFileExchange {
 
 						processMap.set(processId, updatedProcess);
 
-						if (updatedProcess.status === "finished") {
+						if (
+							updatedProcess.status === "finished" ||
+							updatedProcess.status === "cancelled" ||
+							updatedProcess.status === "failed"
+						) {
 							pendingProcessIds.delete(processId);
 						}
 					} catch {

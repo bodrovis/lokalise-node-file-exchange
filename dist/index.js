@@ -152,7 +152,7 @@ var LokaliseDownload = class extends LokaliseFileExchange {
    */
   async downloadTranslations(downloadTranslationParams) {
     const { downloadFileParams, extractParams = {} } = downloadTranslationParams;
-    const outputDir = extractParams.outputDir ?? "./locales";
+    const outputDir = extractParams.outputDir ?? "./";
     const translationsBundle = await this.getTranslationsBundle(downloadFileParams);
     const zipFilePath = await this.downloadZip(translationsBundle.bundle_url);
     try {
@@ -266,7 +266,7 @@ var LokaliseUpload = class extends LokaliseFileExchange {
    * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
    * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
    */
-  async uploadTranslations(uploadTranslationParams) {
+  async uploadTranslations(uploadTranslationParams = {}) {
     const { uploadFileParams, collectFileParams, processUploadFileParams } = uploadTranslationParams;
     const defaultPollingParams = {
       pollStatuses: false,
@@ -404,7 +404,9 @@ var LokaliseUpload = class extends LokaliseFileExchange {
       processMap.set(proc.process_id, proc);
     }
     const pendingProcessIds = new Set(
-      processes.filter((p) => p.status !== "finished").map((p) => p.process_id)
+      processes.filter(
+        (p) => p.status === "queued" || p.status === "pre_processing" || p.status === "running" || p.status === "post_processing"
+      ).map((p) => p.process_id)
     );
     while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
       await Promise.all(
@@ -412,7 +414,7 @@ var LokaliseUpload = class extends LokaliseFileExchange {
           try {
             const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
             processMap.set(processId, updatedProcess);
-            if (updatedProcess.status === "finished") {
+            if (updatedProcess.status === "finished" || updatedProcess.status === "cancelled" || updatedProcess.status === "failed") {
               pendingProcessIds.delete(processId);
             }
           } catch {

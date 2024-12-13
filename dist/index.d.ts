@@ -156,7 +156,7 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
      * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
      */
-    uploadTranslations(uploadTranslationParams: UploadTranslationParams): Promise<{
+    uploadTranslations(uploadTranslationParams?: UploadTranslationParams): Promise<{
         processes: QueuedProcess[];
         errors: FileUploadError[];
     }>;

@@ -26,7 +26,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	): Promise<void> {
 		const { downloadFileParams, extractParams = {} } =
 			downloadTranslationParams;
-		const outputDir = extractParams.outputDir ?? "./locales";
+		const outputDir = extractParams.outputDir ?? "./";
 
 		const translationsBundle =
 			await this.getTranslationsBundle(downloadFileParams);

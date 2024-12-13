@@ -254,8 +254,19 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 
 				const processId = req.path.split("/").pop(); // Extract process_id from URL
 
-				const status =
-					pollAttempts > cappedPollAttempts ? "finished" : "queued";
+				let status: string;
+
+				if (pollAttempts > cappedPollAttempts) {
+					if (pollAttempts === 4) {
+						status = "cancelled";
+					} else if (pollAttempts === 5) {
+						status = "failed";
+					} else {
+						status = "finished";
+					}
+				} else {
+					status = "queued";
+				}
 
 				return {
 					statusCode: 200,
@@ -294,7 +305,7 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 		expect(errors).toHaveLength(0);
 
 		for (const process of processes) {
-			expect(process.status).toEqual("finished");
+			expect(["finished", "cancelled", "failed"]).toContain(process.status);
 		}
 
 		expect(pollAttempts).toEqual(cappedPollAttempts + jsonFilesCount);

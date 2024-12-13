@@ -109,7 +109,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 		);
 		expect(mockUnpackZip).toHaveBeenCalledWith(
 			"/mock/path/to/translations.zip",
-			"./locales",
+			"./",
 		);
 		expect(mockUnlink).toHaveBeenCalledWith("/mock/path/to/translations.zip");
 	});
