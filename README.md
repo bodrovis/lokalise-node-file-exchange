@@ -284,6 +284,10 @@ const { processes, errors } = await lokaliseUploader.uploadTranslations({
 
 Now the function will wait up to 150 seconds for all processes to be completed (or marked as cancelled or failed).
 
+## Samples
+
+Find the sample usage at [github.com/bodrovis/lokalise-node-file-exchange-samples](https://github.com/bodrovis/lokalise-node-file-exchange-samples).
+
 ## License
 
 BSD 3 Clause
