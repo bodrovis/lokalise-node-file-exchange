@@ -3,7 +3,7 @@ import type { CollectFileParams } from "./CollectFileParams.js";
 import type { ProcessUploadFileParams } from "./ProcessUploadFileParams.js";
 
 export interface UploadTranslationParams {
-	uploadFileParams?: UploadFileParams;
+	uploadFileParams?: Partial<UploadFileParams>;
 	collectFileParams?: CollectFileParams;
 	processUploadFileParams?: ProcessUploadFileParams;
 }

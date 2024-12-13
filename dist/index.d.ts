@@ -40,7 +40,7 @@ interface RetryParams {
 }
 
 interface UploadTranslationParams {
-    uploadFileParams?: UploadFileParams;
+    uploadFileParams?: Partial<UploadFileParams>;
     collectFileParams?: CollectFileParams;
     processUploadFileParams?: ProcessUploadFileParams;
 }
