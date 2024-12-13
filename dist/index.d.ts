@@ -29,6 +29,9 @@ interface LokaliseExchangeConfig {
 
 interface ProcessUploadFileParams {
     languageInferer?: (filePath: string) => Promise<string> | string;
+    pollStatuses?: boolean;
+    pollInitialWaitTime?: number;
+    pollMaximumWaitTime?: number;
 }
 
 interface RetryParams {
@@ -147,6 +150,12 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
      * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
      */
+    /**
+     * Collects files, uploads them to Lokalise, and optionally polls for process completion, returning both processes and errors.
+     *
+     * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
+     * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
+     */
     uploadTranslations(uploadTranslationParams: UploadTranslationParams): Promise<{
         processes: QueuedProcess[];
         errors: FileUploadError[];
@@ -157,26 +166,14 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @param {CollectFileParams} collectFileParams - Parameters for file collection, including directories, extensions, and patterns.
      * @returns {Promise<string[]>} A promise resolving with the list of collected file paths.
      */
-    collectFiles({ inputDirs, extensions, excludePatterns, recursive, fileNamePattern, }?: CollectFileParams): Promise<string[]>;
-    /**
-     * Uploads files in parallel with a limit on the number of concurrent uploads.
-     *
-     * @param {string[]} files - List of file paths to upload.
-     * @param {Partial<UploadFileParams>} baseUploadFileParams - Base parameters for uploads.
-     * @param {ProcessUploadFileParams} processUploadFileParams - Parameters for processing files before upload.
-     * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
-     */
-    parallelUpload(files: string[], baseUploadFileParams?: Partial<UploadFileParams>, processUploadFileParams?: ProcessUploadFileParams): Promise<{
-        processes: QueuedProcess[];
-        errors: FileUploadError[];
-    }>;
+    protected collectFiles({ inputDirs, extensions, excludePatterns, recursive, fileNamePattern, }?: CollectFileParams): Promise<string[]>;
     /**
      * Uploads a single file to Lokalise.
      *
      * @param {UploadFileParams} uploadParams - Parameters for uploading the file.
      * @returns {Promise<QueuedProcess>} A promise resolving with the upload process details.
      */
-    uploadSingleFile(uploadParams: UploadFileParams): Promise<QueuedProcess>;
+    protected uploadSingleFile(uploadParams: UploadFileParams): Promise<QueuedProcess>;
     /**
      * Processes a file to prepare it for upload, converting it to base64 and extracting its language code.
      *
@@ -185,7 +182,25 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
      * @returns {Promise<ProcessedFile>} A promise resolving with the processed file details, including base64 content, relative path, and language code.
      */
-    processFile(file: string, projectRoot: string, languageInferer?: (filePath: string) => Promise<string> | string): Promise<ProcessedFile>;
+    protected processFile(file: string, projectRoot: string, languageInferer?: (filePath: string) => Promise<string> | string): Promise<ProcessedFile>;
+    /**
+     * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
+     *
+     * @param {QueuedProcess[]} processes - The array of processes to poll.
+     * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
+     * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
+     * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
+     */
+    private pollProcesses;
+    /**
+     * Uploads files in parallel with a limit on the number of concurrent uploads.
+     *
+     * @param {string[]} files - List of file paths to upload.
+     * @param {Partial<UploadFileParams>} baseUploadFileParams - Base parameters for uploads.
+     * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
+     * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
+     */
+    private parallelUpload;
 }
 
 /**

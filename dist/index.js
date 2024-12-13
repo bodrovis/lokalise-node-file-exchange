@@ -260,14 +260,38 @@ var LokaliseUpload = class extends LokaliseFileExchange {
    * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
    * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
    */
+  /**
+   * Collects files, uploads them to Lokalise, and optionally polls for process completion, returning both processes and errors.
+   *
+   * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
+   * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
+   */
   async uploadTranslations(uploadTranslationParams) {
     const { uploadFileParams, collectFileParams, processUploadFileParams } = uploadTranslationParams;
+    const defaultPollingParams = {
+      pollStatuses: false,
+      pollInitialWaitTime: 1e3,
+      pollMaximumWaitTime: 12e4
+    };
+    const { pollStatuses, pollInitialWaitTime, pollMaximumWaitTime } = {
+      ...defaultPollingParams,
+      ...processUploadFileParams
+    };
     const collectedFiles = await this.collectFiles(collectFileParams);
-    return this.parallelUpload(
+    const { processes, errors } = await this.parallelUpload(
       collectedFiles,
       uploadFileParams,
-      processUploadFileParams
+      processUploadFileParams?.languageInferer
     );
+    let completedProcesses = processes;
+    if (pollStatuses) {
+      completedProcesses = await this.pollProcesses(
+        processes,
+        pollInitialWaitTime,
+        pollMaximumWaitTime
+      );
+    }
+    return { processes: completedProcesses, errors };
   }
   /**
    * Collects files from the filesystem based on the given parameters.
@@ -324,45 +348,6 @@ var LokaliseUpload = class extends LokaliseFileExchange {
     return collectedFiles;
   }
   /**
-   * Uploads files in parallel with a limit on the number of concurrent uploads.
-   *
-   * @param {string[]} files - List of file paths to upload.
-   * @param {Partial<UploadFileParams>} baseUploadFileParams - Base parameters for uploads.
-   * @param {ProcessUploadFileParams} processUploadFileParams - Parameters for processing files before upload.
-   * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
-   */
-  async parallelUpload(files, baseUploadFileParams = {}, processUploadFileParams = {}) {
-    const projectRoot = process.cwd();
-    const queuedProcesses = [];
-    const errors = [];
-    const pool = new Array(this.maxConcurrentProcesses).fill(null).map(
-      () => (async () => {
-        while (files.length > 0) {
-          const file = files.shift();
-          if (!file) {
-            break;
-          }
-          try {
-            const processedFileParams = await this.processFile(
-              file,
-              projectRoot,
-              processUploadFileParams.languageInferer
-            );
-            const queuedProcess = await this.uploadSingleFile({
-              ...baseUploadFileParams,
-              ...processedFileParams
-            });
-            queuedProcesses.push(queuedProcess);
-          } catch (error) {
-            errors.push({ file, error });
-          }
-        }
-      })()
-    );
-    await Promise.all(pool);
-    return { processes: queuedProcesses, errors };
-  }
-  /**
    * Uploads a single file to Lokalise.
    *
    * @param {UploadFileParams} uploadParams - Parameters for uploading the file.
@@ -402,6 +387,83 @@ var LokaliseUpload = class extends LokaliseFileExchange {
       filename: relativePath,
       lang_iso: languageCode
     };
+  }
+  /**
+   * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
+   *
+   * @param {QueuedProcess[]} processes - The array of processes to poll.
+   * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
+   * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
+   * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
+   */
+  async pollProcesses(processes, initialWaitTime, maxWaitTime) {
+    const startTime = Date.now();
+    let waitTime = initialWaitTime;
+    const processMap = /* @__PURE__ */ new Map();
+    for (const proc of processes) {
+      processMap.set(proc.process_id, proc);
+    }
+    const pendingProcessIds = new Set(
+      processes.filter((p) => p.status !== "finished").map((p) => p.process_id)
+    );
+    while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
+      await Promise.all(
+        [...pendingProcessIds].map(async (processId) => {
+          try {
+            const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
+            processMap.set(processId, updatedProcess);
+            if (updatedProcess.status === "finished") {
+              pendingProcessIds.delete(processId);
+            }
+          } catch {
+          }
+        })
+      );
+      if (pendingProcessIds.size > 0) {
+        await this.sleep(waitTime);
+        waitTime = Math.min(waitTime * 2, maxWaitTime / 4);
+      }
+    }
+    return Array.from(processMap.values());
+  }
+  /**
+   * Uploads files in parallel with a limit on the number of concurrent uploads.
+   *
+   * @param {string[]} files - List of file paths to upload.
+   * @param {Partial<UploadFileParams>} baseUploadFileParams - Base parameters for uploads.
+   * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
+   * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
+   */
+  async parallelUpload(files, baseUploadFileParams = {}, languageInferer) {
+    const projectRoot = process.cwd();
+    const queuedProcesses = [];
+    const errors = [];
+    const pool = new Array(this.maxConcurrentProcesses).fill(null).map(
+      () => (async () => {
+        while (files.length > 0) {
+          const file = files.shift();
+          if (!file) {
+            break;
+          }
+          try {
+            const processedFileParams = await this.processFile(
+              file,
+              projectRoot,
+              languageInferer
+            );
+            const queuedProcess = await this.uploadSingleFile({
+              ...baseUploadFileParams,
+              ...processedFileParams
+            });
+            queuedProcesses.push(queuedProcess);
+          } catch (error) {
+            errors.push({ file, error });
+          }
+        }
+      })()
+    );
+    await Promise.all(pool);
+    return { processes: queuedProcesses, errors };
   }
 };
 export {
