@@ -80,7 +80,6 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 	});
 
 	it("should download, extract, and clean up translations successfully with mocked data", async () => {
-		// Mock dependencies
 		const mockGetTranslationsBundle = vi
 			.spyOn(downloader, "getTranslationsBundle")
 			.mockResolvedValue({
@@ -100,12 +99,10 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			.spyOn(fs.promises, "unlink")
 			.mockResolvedValue(undefined);
 
-		// Call the function under test
 		await expect(
 			downloader.downloadTranslations({ downloadFileParams }),
 		).resolves.not.toThrow();
 
-		// Assertions
 		expect(mockGetTranslationsBundle).toHaveBeenCalledWith(downloadFileParams);
 		expect(mockDownloadZip).toHaveBeenCalledWith(
 			"https://example.com/translations.zip",
@@ -150,7 +147,6 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				project_id: "test-project-id",
 			});
 
-		// Mock downloadZip to return a path to a non-existent file
 		const nonexistentZipPath = "/nonexistent/path/to/translations.zip";
 		const mockDownloadZip = vi
 			.spyOn(downloader, "downloadZip")
@@ -160,7 +156,6 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			.spyOn(fs.promises, "unlink")
 			.mockResolvedValue(undefined);
 
-		// Call the function and expect it to throw an error
 		await expect(
 			downloader.downloadTranslations({
 				downloadFileParams,
@@ -170,13 +165,11 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			`ENOENT, no such file or directory '${nonexistentZipPath}'`,
 		);
 
-		// Verify interactions
 		expect(mockGetTranslationsBundle).toHaveBeenCalledWith(downloadFileParams);
 		expect(mockDownloadZip).toHaveBeenCalledWith(
 			"https://example.com/translations.zip",
 		);
 
-		// Ensure cleanup was attempted
 		expect(mockUnlink).toHaveBeenCalledWith(nonexistentZipPath);
 	});
 
@@ -196,20 +189,17 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			.spyOn(fs.promises, "unlink")
 			.mockResolvedValue(undefined);
 
-		// Call the function and expect it to throw a ZIP-specific error
 		await expect(
 			downloader.downloadTranslations({ downloadFileParams, extractParams }),
 		).rejects.toThrow(
 			"End of central directory record signature not found. Either not a zip file, or file is truncated.",
 		);
 
-		// Verify interactions
 		expect(mockGetTranslationsBundle).toHaveBeenCalledWith(downloadFileParams);
 		expect(mockDownloadZip).toHaveBeenCalledWith(
 			"https://example.com/translations.zip",
 		);
 
-		// Ensure cleanup was performed
 		expect(mockUnlink).toHaveBeenCalledWith(invalidZipPath);
 	});
 });

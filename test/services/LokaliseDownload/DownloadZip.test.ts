@@ -48,10 +48,8 @@ describe("LokaliseDownload: downloadZip()", () => {
 		const mockZipContent = "Mock ZIP file content";
 		const mockTempPath = "/mock/temp/lokalise-translations.zip";
 
-		// Mock path.join to return a predefined file path
 		const pathJoinSpy = vi.spyOn(path, "join").mockReturnValue(mockTempPath);
 
-		// Mock fs.createWriteStream
 		const writeStreamSpy = vi
 			.spyOn(fs, "createWriteStream")
 			.mockImplementation((filePath) => {
@@ -64,7 +62,6 @@ describe("LokaliseDownload: downloadZip()", () => {
 				return mockStream;
 			});
 
-		// Mock the fetch response
 		mockPool
 			.intercept({
 				path: "/download.zip",
@@ -74,12 +71,10 @@ describe("LokaliseDownload: downloadZip()", () => {
 				headers: { "Content-Type": "application/zip" },
 			});
 
-		// Act: Call the function under test
 		const zipPath = await downloader.downloadZip(
 			"https://example.com/download.zip",
 		);
 
-		// Assert: Validate the behavior
 		expect(zipPath).toBe(mockTempPath);
 		expect(pathJoinSpy).toHaveBeenCalledWith(
 			os.tmpdir(),
@@ -87,7 +82,6 @@ describe("LokaliseDownload: downloadZip()", () => {
 		);
 		expect(writeStreamSpy).toHaveBeenCalledWith(mockTempPath);
 
-		// Cleanup
 		pathJoinSpy.mockRestore();
 		writeStreamSpy.mockRestore();
 	});
@@ -112,7 +106,7 @@ describe("LokaliseDownload: downloadZip()", () => {
 			ok: true,
 			status: 200,
 			statusText: "OK",
-			body: null, // Simulate a null body
+			body: null,
 		});
 
 		await expect(

@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import mock from "mock-fs";
-import { LokaliseUpload } from "../../../lib/services/LokaliseUpload.js";
+import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
 import { afterEach, beforeEach, describe, expect, it } from "../../setup.js";
 
 describe("processFile", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
 	const apiKey = process.env.API_KEY as string;
-	let lokaliseUpload: LokaliseUpload;
+	let lokaliseUpload: FakeLokaliseUpload;
 
 	beforeEach(() => {
 		mock({
@@ -24,7 +24,7 @@ describe("processFile", () => {
 			},
 		});
 
-		lokaliseUpload = new LokaliseUpload({ apiKey }, { projectId });
+		lokaliseUpload = new FakeLokaliseUpload({ apiKey }, { projectId });
 	});
 
 	afterEach(() => {
@@ -32,7 +32,7 @@ describe("processFile", () => {
 	});
 
 	it("should process a file and return correct ProcessedFile object for en.json", async () => {
-		const result = await lokaliseUpload.processFile(
+		const result = await lokaliseUpload.fakeProcessFile(
 			"/project/locales/en.json",
 			"/project",
 		);
@@ -44,7 +44,7 @@ describe("processFile", () => {
 	});
 
 	it("should process a file with complex filename and return correct ProcessedFile object", async () => {
-		const result = await lokaliseUpload.processFile(
+		const result = await lokaliseUpload.fakeProcessFile(
 			"/project/locales/fr_FR.json",
 			"/project",
 		);
@@ -56,7 +56,7 @@ describe("processFile", () => {
 	});
 
 	it("should process a nested file and return correct ProcessedFile object", async () => {
-		const result = await lokaliseUpload.processFile(
+		const result = await lokaliseUpload.fakeProcessFile(
 			"/project/locales/nested/es.json",
 			"/project",
 		);
@@ -68,7 +68,7 @@ describe("processFile", () => {
 	});
 
 	it("should process a file from another directory and return correct ProcessedFile object", async () => {
-		const result = await lokaliseUpload.processFile(
+		const result = await lokaliseUpload.fakeProcessFile(
 			"/project/other/de-DE.json",
 			"/project",
 		);
@@ -80,7 +80,7 @@ describe("processFile", () => {
 	});
 
 	it("should allow to set language inferer", async () => {
-		const result = await lokaliseUpload.processFile(
+		const result = await lokaliseUpload.fakeProcessFile(
 			"/project/locales/weird.fake_json",
 			"/project",
 			async (filePath) => {
@@ -97,7 +97,7 @@ describe("processFile", () => {
 	});
 
 	it("should use basename as the locale if the inferer throws", async () => {
-		const result = await lokaliseUpload.processFile(
+		const result = await lokaliseUpload.fakeProcessFile(
 			"/project/locales/en.json",
 			"/project",
 			(_filePath) => {
@@ -112,7 +112,7 @@ describe("processFile", () => {
 	});
 
 	it("should use basename as the locale if the inferer returns an empty string", async () => {
-		const result = await lokaliseUpload.processFile(
+		const result = await lokaliseUpload.fakeProcessFile(
 			"/project/locales/en.json",
 			"/project",
 			(_filePath) => {

@@ -1,23 +1,4 @@
-import { DownloadFileParams, LokaliseApi, ClientParams, DownloadBundle, UploadFileParams, QueuedProcess } from '@lokalise/node-api';
-
-interface LokaliseExchangeConfig {
-    projectId: string;
-    retryParams?: Partial<RetryParams>;
-}
-
-interface ExtractParams {
-    outputDir?: string;
-}
-
-interface RetryParams {
-    maxRetries: number;
-    initialSleepTime: number;
-}
-
-interface DownloadTranslationParams {
-    downloadFileParams: DownloadFileParams;
-    extractParams?: ExtractParams;
-}
+import { DownloadFileParams, UploadFileParams, LokaliseApi, ClientParams, DownloadBundle, QueuedProcess } from '@lokalise/node-api';
 
 interface CollectFileParams {
     inputDirs?: string[];
@@ -25,6 +6,40 @@ interface CollectFileParams {
     excludePatterns?: string[];
     recursive?: boolean;
     fileNamePattern?: string;
+}
+
+interface ExtractParams {
+    outputDir?: string;
+}
+
+interface DownloadTranslationParams {
+    downloadFileParams: DownloadFileParams;
+    extractParams?: ExtractParams;
+}
+
+interface FileUploadError {
+    file: string;
+    error: unknown;
+}
+
+interface LokaliseExchangeConfig {
+    projectId: string;
+    retryParams?: Partial<RetryParams>;
+}
+
+interface ProcessUploadFileParams {
+    languageInferer?: (filePath: string) => Promise<string> | string;
+}
+
+interface RetryParams {
+    maxRetries: number;
+    initialSleepTime: number;
+}
+
+interface UploadTranslationParams {
+    uploadFileParams?: UploadFileParams;
+    collectFileParams?: CollectFileParams;
+    processUploadFileParams?: ProcessUploadFileParams;
 }
 
 /**
@@ -50,30 +65,29 @@ declare class LokaliseFileExchange {
     /**
      * Creates a new instance of LokaliseFileExchange.
      *
-     * @param {ClientParams} clientConfig - Configuration for Lokalise SDK.
-     * @param {LokaliseExchangeConfig} exchangeConfig - The configuration object.
+     * @param {ClientParams} clientConfig - Configuration for the Lokalise SDK.
+     * @param {LokaliseExchangeConfig} exchangeConfig - The configuration object for file exchange operations.
      * @throws {Error} If the provided configuration is invalid.
      */
     constructor(clientConfig: ClientParams, exchangeConfig: LokaliseExchangeConfig);
     /**
      * Executes an asynchronous operation with exponential backoff retry logic.
      *
-     * This method retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
+     * Retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
      * 408 Request Timeout) using an exponential backoff strategy. If the maximum number of retries is exceeded,
      * it throws an error. Non-retryable errors are immediately propagated.
      *
      * @template T The type of the value returned by the operation.
-     * @param {() => Promise<T>} operation - The asynchronous operation to be executed.
+     * @param {() => Promise<T>} operation - The asynchronous operation to execute.
      * @returns {Promise<T>} A promise that resolves to the result of the operation if successful.
-     * @throws {LokaliseError} Throws a LokaliseError if the maximum number of retries is reached or for non-retryable errors.
+     * @throws {LokaliseError} If the maximum number of retries is reached or a non-retryable error occurs.
      */
     protected withExponentialBackoff<T>(operation: () => Promise<T>): Promise<T>;
     /**
      * Pauses execution for the specified number of milliseconds.
      *
-     * @param ms - The time to sleep in milliseconds.
-     * @returns A promise that resolves after the specified time.
-     * @internal This is a utility method used for retrying failed requests.
+     * @param {number} ms - The time to sleep in milliseconds.
+     * @returns {Promise<void>} A promise that resolves after the specified time.
      */
     protected sleep(ms: number): Promise<void>;
 }
@@ -116,25 +130,10 @@ declare class LokaliseDownload extends LokaliseFileExchange {
     getTranslationsBundle(downloadFileParams: DownloadFileParams): Promise<DownloadBundle>;
 }
 
-interface FileUploadError {
-    file: string;
-    error: unknown;
-}
-
-interface ProcessUploadFileParams {
-    languageInferer?: (filePath: string) => Promise<string> | string;
-}
-
 interface ProcessedFile {
     data: string;
     filename: string;
     lang_iso: string;
-}
-
-interface UploadTranslationParams {
-    uploadFileParams?: UploadFileParams;
-    collectFileParams?: CollectFileParams;
-    processUploadFileParams?: ProcessUploadFileParams;
 }
 
 /**
@@ -235,4 +234,4 @@ declare class LokaliseError extends Error implements LokaliseError$1 {
     toString(): string;
 }
 
-export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseFileExchange, LokaliseUpload, type RetryParams };
+export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, type FileUploadError, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseFileExchange, LokaliseUpload, type ProcessUploadFileParams, type RetryParams, type UploadTranslationParams };

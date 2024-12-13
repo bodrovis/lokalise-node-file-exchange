@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { json } from "node:stream/consumers";
 import type { UploadFileParams } from "@lokalise/node-api";
 import mock from "mock-fs";
 import { MockAgent, setGlobalDispatcher } from "undici";
@@ -203,5 +204,96 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 
 		expect(processes).toHaveLength(0);
 		expect(errors).toHaveLength(0);
+	});
+
+	it("should upload files and poll their statuses until finished", async () => {
+		const processIdPrefix = "poll-process";
+		let uploadCount = 0;
+		const jsonFilesCount = 7;
+		const cappedPollAttempts = 2;
+
+		mockPool
+			.intercept({
+				path: `/api2/projects/${projectId}/files/upload`,
+				method: "POST",
+			})
+			.reply(() => {
+				uploadCount++;
+				return {
+					statusCode: 200,
+					data: {
+						project_id: projectId,
+						branch: "master",
+						process: {
+							process_id: `${processIdPrefix}-${uploadCount}`,
+							type: "file-import",
+							status: "queued",
+							message: "",
+							created_by: 20181,
+							created_by_email: "test@example.com",
+							created_at: "2023-09-21 11:33:19 (Etc/UTC)",
+							created_at_timestamp: 1695295999,
+						},
+					},
+				};
+			})
+			.times(jsonFilesCount);
+
+		let pollAttempts = 0;
+
+		mockPool
+			.intercept({
+				method: "GET",
+				path: /api2\/projects\/.+\/processes\/.+/,
+			})
+			.reply((req) => {
+				pollAttempts++;
+
+				const processId = req.path.split("/").pop(); // Extract process_id from URL
+
+				const status =
+					pollAttempts > cappedPollAttempts ? "finished" : "queued";
+
+				return {
+					statusCode: 200,
+					data: {
+						project_id: projectId,
+						branch: "master",
+						process: {
+							process_id: processId,
+							type: "file-import",
+							status,
+							message: "",
+							created_by: 20181,
+							created_by_email: "test@example.com",
+							created_at: "2023-09-21 11:33:19 (Etc/UTC)",
+							created_at_timestamp: 1695295999,
+						},
+					},
+				};
+			})
+			.times(jsonFilesCount + cappedPollAttempts);
+
+		const { processes, errors } = await lokaliseUpload.uploadTranslations({
+			collectFileParams: {
+				inputDirs: ["./locales"],
+				extensions: [".json"],
+			},
+			processUploadFileParams: {
+				pollStatuses: true,
+				pollInitialWaitTime: 500,
+				pollMaximumWaitTime: 5000,
+			},
+		});
+
+		expect(uploadCount).toEqual(jsonFilesCount);
+		expect(processes).toHaveLength(jsonFilesCount);
+		expect(errors).toHaveLength(0);
+
+		for (const process of processes) {
+			expect(process.status).toEqual("finished");
+		}
+
+		expect(pollAttempts).toEqual(cappedPollAttempts + jsonFilesCount);
 	});
 });

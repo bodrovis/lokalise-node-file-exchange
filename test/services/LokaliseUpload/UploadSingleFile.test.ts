@@ -1,5 +1,5 @@
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
-import { LokaliseUpload } from "../../../lib/services/LokaliseUpload.js";
+import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
 import {
 	MockAgent,
 	afterAll,
@@ -45,7 +45,7 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 	});
 
 	it("should successfully upload a file and return a queued process", async () => {
-		const uploader = new LokaliseUpload({ apiKey }, { projectId });
+		const uploader = new FakeLokaliseUpload({ apiKey }, { projectId });
 		const processId = "123abc";
 
 		mockPool
@@ -68,7 +68,7 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 					created_at_timestamp: 1695295999,
 				},
 			});
-		const process = await uploader.uploadSingleFile(mockParams);
+		const process = await uploader.fakeUploadSingleFile(mockParams);
 
 		expect(process.process_id).toEqual(processId);
 		expect(process.status).toEqual("queued");
@@ -89,7 +89,7 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 
 		const retries = 3;
 		const sleepTime = 1;
-		const uploader = new LokaliseUpload(
+		const uploader = new FakeLokaliseUpload(
 			{ apiKey },
 			{
 				projectId,
@@ -123,7 +123,7 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 			})
 			.times(retries);
 
-		const result = await uploader.uploadSingleFile(mockParams);
+		const result = await uploader.fakeUploadSingleFile(mockParams);
 
 		expect(result).toEqual(mockResponse);
 		expect(callCount).toBe(retries);
@@ -146,8 +146,8 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 			})
 			.reply(403, mockError);
 
-		const uploader = new LokaliseUpload({ apiKey }, { projectId });
-		await expect(uploader.uploadSingleFile(mockParams)).rejects.toThrow(
+		const uploader = new FakeLokaliseUpload({ apiKey }, { projectId });
+		await expect(uploader.fakeUploadSingleFile(mockParams)).rejects.toThrow(
 			new LokaliseError(mockError.message, mockError.code),
 		);
 	});
@@ -155,7 +155,7 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 	it("should throw a LokaliseError after exceeding retries on 408 errors", async () => {
 		const retries = 3;
 		const sleepTime = 1;
-		const uploader = new LokaliseUpload(
+		const uploader = new FakeLokaliseUpload(
 			{ apiKey },
 			{
 				projectId,
@@ -177,7 +177,7 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 			.times(retries + 1);
 
 		try {
-			await uploader.uploadSingleFile(mockParams);
+			await uploader.fakeUploadSingleFile(mockParams);
 		} catch (e) {
 			expect(e).toBeInstanceOf(LokaliseError);
 			expect(e.message).toEqual("Maximum retries reached: Request Timeout");

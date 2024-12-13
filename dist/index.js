@@ -72,8 +72,8 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   /**
    * Creates a new instance of LokaliseFileExchange.
    *
-   * @param {ClientParams} clientConfig - Configuration for Lokalise SDK.
-   * @param {LokaliseExchangeConfig} exchangeConfig - The configuration object.
+   * @param {ClientParams} clientConfig - Configuration for the Lokalise SDK.
+   * @param {LokaliseExchangeConfig} exchangeConfig - The configuration object for file exchange operations.
    * @throws {Error} If the provided configuration is invalid.
    */
   constructor(clientConfig, exchangeConfig) {
@@ -97,14 +97,14 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   /**
    * Executes an asynchronous operation with exponential backoff retry logic.
    *
-   * This method retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
+   * Retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
    * 408 Request Timeout) using an exponential backoff strategy. If the maximum number of retries is exceeded,
    * it throws an error. Non-retryable errors are immediately propagated.
    *
    * @template T The type of the value returned by the operation.
-   * @param {() => Promise<T>} operation - The asynchronous operation to be executed.
+   * @param {() => Promise<T>} operation - The asynchronous operation to execute.
    * @returns {Promise<T>} A promise that resolves to the result of the operation if successful.
-   * @throws {LokaliseError} Throws a LokaliseError if the maximum number of retries is reached or for non-retryable errors.
+   * @throws {LokaliseError} If the maximum number of retries is reached or a non-retryable error occurs.
    */
   async withExponentialBackoff(operation) {
     const { maxRetries, initialSleepTime } = this.retryParams;
@@ -115,7 +115,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
         if (error instanceof LokaliseApiError && (error.code === 429 || error.code === 408)) {
           if (attempt === maxRetries + 1) {
             throw new LokaliseError(
-              `Maximum retries reached: ${error instanceof Error ? error.message : "Unknown error"}`,
+              `Maximum retries reached: ${error.message ?? "Unknown error"}`,
               error.code,
               error.details
             );
@@ -128,14 +128,13 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
         }
       }
     }
-    throw new LokaliseError("Unexpected error", 500);
+    throw new LokaliseError("Unexpected error during operation.", 500);
   }
   /**
    * Pauses execution for the specified number of milliseconds.
    *
-   * @param ms - The time to sleep in milliseconds.
-   * @returns A promise that resolves after the specified time.
-   * @internal This is a utility method used for retrying failed requests.
+   * @param {number} ms - The time to sleep in milliseconds.
+   * @returns {Promise<void>} A promise that resolves after the specified time.
    */
   sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
