@@ -76,7 +76,7 @@ const downloadFileParams: DownloadFileParams = {
   directory_prefix: "", // Optional prefix for output directory structure
 };
 
-// Download all translations into the `./locales` directory while preserving original filenames
+// Download all translations into the project root while preserving original filenames
 await lokaliseDownloader.downloadTranslations({ downloadFileParams });
 ```
 
