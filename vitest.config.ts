@@ -9,6 +9,9 @@ export default defineConfig({
 	test: {
 		silent: isCI,
 		reporters: isCI ? ["default"] : ["verbose"],
+		sequence: {
+			shuffle: true,
+		},
 		coverage: {
 			provider: "istanbul",
 			reporter: isCI ? ["lcov"] : ["html", "text"],

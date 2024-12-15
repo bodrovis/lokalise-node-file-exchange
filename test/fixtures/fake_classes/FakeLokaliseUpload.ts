@@ -5,28 +5,28 @@ import { LokaliseUpload } from "../../../lib/services/LokaliseUpload.js";
 
 // Public morozov
 export class FakeLokaliseUpload extends LokaliseUpload {
-	async fakeUploadSingleFile(
+	public async uploadSingleFile(
 		uploadParams: UploadFileParams,
 	): Promise<QueuedProcess> {
-		return await this.uploadSingleFile(uploadParams);
+		return await super.uploadSingleFile(uploadParams);
 	}
 
-	async fakeProcessFile(
+	public async processFile(
 		file: string,
 		projectRoot: string,
 		languageInferer?: (filePath: string) => Promise<string> | string,
 	): Promise<ProcessedFile> {
-		return await this.processFile(file, projectRoot, languageInferer);
+		return await super.processFile(file, projectRoot, languageInferer);
 	}
 
-	async fakeCollectFiles({
+	public async collectFiles({
 		inputDirs = ["./locales"],
 		extensions = [".*"],
 		excludePatterns = ["node_modules", "dist"],
 		recursive = true,
 		fileNamePattern = ".*",
 	}: CollectFileParams = {}): Promise<string[]> {
-		return await this.collectFiles({
+		return await super.collectFiles({
 			inputDirs,
 			extensions,
 			excludePatterns,

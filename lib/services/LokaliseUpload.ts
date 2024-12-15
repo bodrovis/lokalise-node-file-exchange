@@ -81,53 +81,57 @@ export class LokaliseUpload extends LokaliseFileExchange {
 	}: CollectFileParams = {}): Promise<string[]> {
 		const collectedFiles: string[] = [];
 
-		const traverseDirectory = async (dir: string) => {
-			let entries: fs.Dirent[];
+		const normalizedExtensions = extensions.map((ext) =>
+			ext.startsWith(".") ? ext : `.${ext}`,
+		);
 
+		let regexPattern: RegExp;
+		try {
+			regexPattern = new RegExp(fileNamePattern);
+		} catch {
+			throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
+		}
+
+		const queue: string[] = [...inputDirs.map((dir) => path.resolve(dir))];
+
+		while (queue.length > 0) {
+			const dir = queue.shift();
+			if (!dir) {
+				continue;
+			}
+
+			let entries: fs.Dirent[];
 			try {
 				entries = await fs.promises.readdir(dir, { withFileTypes: true });
 			} catch {
-				return; // Skip inaccessible directories
+				console.warn(`Skipping inaccessible directory: ${dir}`);
+				continue;
 			}
 
-			const tasks = entries.map(async (entry) => {
+			for (const entry of entries) {
 				const fullPath = path.resolve(dir, entry.name);
 
 				if (excludePatterns.some((pattern) => fullPath.includes(pattern))) {
-					return;
+					continue;
 				}
 
 				if (entry.isDirectory() && recursive) {
-					await traverseDirectory(fullPath);
+					queue.push(fullPath);
 				} else if (entry.isFile()) {
 					const fileExt = path.extname(entry.name);
-					const matchesExtension = extensions.some(
-						(ext) => ext === ".*" || ext === fileExt,
-					);
-					const matchesPattern = new RegExp(fileNamePattern).test(entry.name);
+					const matchesExtension =
+						normalizedExtensions.includes(".*") ||
+						normalizedExtensions.includes(fileExt);
+					const matchesPattern = regexPattern.test(entry.name);
 
 					if (matchesExtension && matchesPattern) {
 						collectedFiles.push(fullPath);
 					}
 				}
-			});
-
-			await Promise.all(tasks);
-		};
-
-		const startTasks = inputDirs.map(async (dir) => {
-			try {
-				const stats = await fs.promises.lstat(dir);
-				if (stats.isDirectory()) {
-					await traverseDirectory(path.resolve(dir));
-				}
-			} catch {
-				return; // Skip invalid directories
 			}
-		});
+		}
 
-		await Promise.all(startTasks); // Wait for root directories to be processed
-		return collectedFiles;
+		return collectedFiles.sort(); // Ensure deterministic output
 	}
 
 	/**

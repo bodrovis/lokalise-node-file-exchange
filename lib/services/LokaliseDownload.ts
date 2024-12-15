@@ -16,9 +16,9 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	private readonly streamPipeline = promisify(pipeline);
 
 	/**
-	 * Downloads translations from Lokalise, saving them to a ZIP file and then extracting them.
+	 * Downloads translations from Lokalise, saving them to a ZIP file and extracting them.
 	 *
-	 * @param {DownloadTranslationParams} downloadTranslationParams - Configuration for download, extraction, and retries.
+	 * @param downloadTranslationParams - Configuration for download, extraction, and retries.
 	 * @throws {LokaliseError} If any step fails (e.g., download or extraction fails).
 	 */
 	async downloadTranslations(
@@ -26,12 +26,15 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	): Promise<void> {
 		const { downloadFileParams, extractParams = {} } =
 			downloadTranslationParams;
-		const outputDir = extractParams.outputDir ?? "./";
 
+		const outputDir = path.resolve(extractParams.outputDir ?? "./");
+
+		// Step 1: Retrieve ZIP bundle URL
 		const translationsBundle =
 			await this.getTranslationsBundle(downloadFileParams);
 		const zipFilePath = await this.downloadZip(translationsBundle.bundle_url);
 
+		// Step 2: Extract ZIP to outputDir
 		try {
 			await this.unpackZip(zipFilePath, outputDir);
 		} finally {
@@ -42,11 +45,14 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	/**
 	 * Unpacks a ZIP file into the specified directory.
 	 *
-	 * @param {string} zipFilePath - Path to the ZIP file.
-	 * @param {string} outputDir - Directory to extract the files into.
-	 * @throws {LokaliseError, Error} If extraction fails for any reason.
+	 * @param zipFilePath - Path to the ZIP file.
+	 * @param outputDir - Directory to extract the files into.
+	 * @throws {LokaliseError} If extraction fails or malicious paths are detected.
 	 */
-	async unpackZip(zipFilePath: string, outputDir: string): Promise<void> {
+	protected async unpackZip(
+		zipFilePath: string,
+		outputDir: string,
+	): Promise<void> {
 		const createDir = async (dir: string): Promise<void> => {
 			await fs.promises.mkdir(dir, { recursive: true });
 		};
@@ -54,17 +60,29 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		return new Promise((resolve, reject) => {
 			yauzl.open(zipFilePath, { lazyEntries: true }, async (err, zipfile) => {
 				if (err) {
-					return reject(err);
+					return reject(
+						new LokaliseError(
+							`Failed to open ZIP file at ${zipFilePath}: ${err.message}`,
+						),
+					);
 				}
 
 				if (!zipfile) {
-					return reject(new LokaliseError("Failed to open ZIP file"));
+					return reject(
+						new LokaliseError(`ZIP file is invalid or empty: ${zipFilePath}`),
+					);
 				}
 
 				zipfile.readEntry();
 				zipfile.on("entry", async (entry) => {
 					try {
-						const fullPath = path.join(outputDir, entry.fileName);
+						// Validate paths to avoid path traversal issues
+						const fullPath = path.resolve(outputDir, entry.fileName);
+						if (!fullPath.startsWith(outputDir)) {
+							throw new LokaliseError(
+								`Malicious ZIP entry detected: ${entry.fileName}`,
+							);
+						}
 
 						if (/\/$/.test(entry.fileName)) {
 							// Directory
@@ -76,7 +94,11 @@ export class LokaliseDownload extends LokaliseFileExchange {
 							const writeStream = fs.createWriteStream(fullPath);
 							zipfile.openReadStream(entry, (readErr, readStream) => {
 								if (readErr || !readStream) {
-									return reject(new LokaliseError("Failed to read ZIP entry."));
+									return reject(
+										new LokaliseError(
+											`Failed to read ZIP entry: ${entry.fileName}`,
+										),
+									);
 								}
 								readStream.pipe(writeStream);
 								writeStream.on("finish", () => zipfile.readEntry());
@@ -97,11 +119,20 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	/**
 	 * Downloads a ZIP file from the given URL.
 	 *
-	 * @param {string} url - The URL of the ZIP file.
-	 * @returns {Promise<string>} The file path of the downloaded ZIP file.
+	 * @param url - The URL of the ZIP file.
+	 * @returns The file path of the downloaded ZIP file.
 	 * @throws {LokaliseError} If the download fails or the response body is empty.
 	 */
-	async downloadZip(url: string): Promise<string> {
+	protected async downloadZip(url: string): Promise<string> {
+		try {
+			const parsedUrl = new URL(url);
+			if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+				throw new Error();
+			}
+		} catch {
+			throw new LokaliseError("A valid URL must start with 'http' or 'https'");
+		}
+
 		const tempZipPath = path.join(
 			os.tmpdir(),
 			`lokalise-translations-${Date.now()}.zip`,
@@ -110,7 +141,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		const response = await fetch(url);
 		if (!response.ok) {
 			throw new LokaliseError(
-				`Failed to download ZIP file: ${response.statusText}`,
+				`Failed to download ZIP file: ${response.statusText} (${response.status})`,
 			);
 		}
 
@@ -128,11 +159,11 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	/**
 	 * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
 	 *
-	 * @param {DownloadFileParams} downloadFileParams - Parameters for Lokalise API file download.
-	 * @returns {Promise<DownloadBundle>} The downloaded bundle metadata.
+	 * @param downloadFileParams - Parameters for Lokalise API file download.
+	 * @returns The downloaded bundle metadata.
 	 * @throws {LokaliseError} If retries are exhausted or an API error occurs.
 	 */
-	async getTranslationsBundle(
+	protected async getTranslationsBundle(
 		downloadFileParams: DownloadFileParams,
 	): Promise<DownloadBundle> {
 		return this.withExponentialBackoff(() =>

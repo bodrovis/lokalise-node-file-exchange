@@ -35,48 +35,56 @@ export class LokaliseFileExchange {
 	/**
 	 * Creates a new instance of LokaliseFileExchange.
 	 *
-	 * @param {ClientParams} clientConfig - Configuration for the Lokalise SDK.
-	 * @param {LokaliseExchangeConfig} exchangeConfig - The configuration object for file exchange operations.
-	 * @throws {Error} If the provided configuration is invalid.
+	 * @param clientConfig - Configuration for the Lokalise SDK.
+	 * @param exchangeConfig - The configuration object for file exchange operations.
+	 * @throws {LokaliseError} If the provided configuration is invalid.
 	 */
 	constructor(
 		clientConfig: ClientParams,
 		exchangeConfig: LokaliseExchangeConfig,
 	) {
 		if (!clientConfig.apiKey || typeof clientConfig.apiKey !== "string") {
-			throw new Error("Invalid or missing API token.");
+			throw new LokaliseError("Invalid or missing API token.", 401);
 		}
 
 		if (
 			!exchangeConfig.projectId ||
 			typeof exchangeConfig.projectId !== "string"
 		) {
-			throw new Error("Invalid or missing Project ID.");
-		}
-
-		const mergedRetryParams = {
-			...LokaliseFileExchange.defaultRetryParams,
-			...exchangeConfig.retryParams,
-		};
-		if (mergedRetryParams.maxRetries < 0) {
-			throw new Error("maxRetries must be greater than or equal to zero.");
+			throw new LokaliseError("Invalid or missing Project ID.", 400);
 		}
 
 		this.apiClient = new LokaliseApi(clientConfig);
 		this.projectId = exchangeConfig.projectId;
-		this.retryParams = mergedRetryParams;
+		this.retryParams = {
+			...LokaliseFileExchange.defaultRetryParams,
+			...exchangeConfig.retryParams,
+		};
+
+		if (this.retryParams.maxRetries < 0) {
+			throw new LokaliseError(
+				"maxRetries must be greater than or equal to zero.",
+				400,
+			);
+		}
+		if (this.retryParams.initialSleepTime <= 0) {
+			throw new LokaliseError(
+				"initialSleepTime must be a positive value.",
+				400,
+			);
+		}
 	}
 
 	/**
 	 * Executes an asynchronous operation with exponential backoff retry logic.
 	 *
 	 * Retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
-	 * 408 Request Timeout) using an exponential backoff strategy. If the maximum number of retries is exceeded,
-	 * it throws an error. Non-retryable errors are immediately propagated.
+	 * 408 Request Timeout) using an exponential backoff strategy with optional jitter. If the maximum number
+	 * of retries is exceeded, it throws an error. Non-retryable errors are immediately propagated.
 	 *
 	 * @template T The type of the value returned by the operation.
-	 * @param {() => Promise<T>} operation - The asynchronous operation to execute.
-	 * @returns {Promise<T>} A promise that resolves to the result of the operation if successful.
+	 * @param operation - The asynchronous operation to execute.
+	 * @returns A promise that resolves to the result of the operation if successful.
 	 * @throws {LokaliseError} If the maximum number of retries is reached or a non-retryable error occurs.
 	 */
 	protected async withExponentialBackoff<T>(
@@ -99,6 +107,7 @@ export class LokaliseFileExchange {
 							error.details,
 						);
 					}
+
 					await this.sleep(initialSleepTime * 2 ** (attempt - 1));
 				} else if (error instanceof LokaliseApiError) {
 					throw new LokaliseError(error.message, error.code, error.details);
@@ -108,14 +117,15 @@ export class LokaliseFileExchange {
 			}
 		}
 
+		// This line is unreachable but keeps TS happy.
 		throw new LokaliseError("Unexpected error during operation.", 500);
 	}
 
 	/**
 	 * Pauses execution for the specified number of milliseconds.
 	 *
-	 * @param {number} ms - The time to sleep in milliseconds.
-	 * @returns {Promise<void>} A promise that resolves after the specified time.
+	 * @param ms - The time to sleep in milliseconds.
+	 * @returns A promise that resolves after the specified time.
 	 */
 	protected sleep(ms: number): Promise<void> {
 		return new Promise((resolve) => setTimeout(resolve, ms));

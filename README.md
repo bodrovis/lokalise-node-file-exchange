@@ -227,12 +227,6 @@ You can infer the language with:
 
 ```js
 const { processes, errors } = await lokaliseUpload.uploadTranslations({
-  collectFileParams: {
-    // ...
-  },
-  uploadFileParams: {
-    // ...
-  },
   processUploadFileParams: {
     languageInferer: async (filePath) => {
       // Provide any conditions as needed

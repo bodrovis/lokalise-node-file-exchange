@@ -68,29 +68,29 @@ declare class LokaliseFileExchange {
     /**
      * Creates a new instance of LokaliseFileExchange.
      *
-     * @param {ClientParams} clientConfig - Configuration for the Lokalise SDK.
-     * @param {LokaliseExchangeConfig} exchangeConfig - The configuration object for file exchange operations.
-     * @throws {Error} If the provided configuration is invalid.
+     * @param clientConfig - Configuration for the Lokalise SDK.
+     * @param exchangeConfig - The configuration object for file exchange operations.
+     * @throws {LokaliseError} If the provided configuration is invalid.
      */
     constructor(clientConfig: ClientParams, exchangeConfig: LokaliseExchangeConfig);
     /**
      * Executes an asynchronous operation with exponential backoff retry logic.
      *
      * Retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
-     * 408 Request Timeout) using an exponential backoff strategy. If the maximum number of retries is exceeded,
-     * it throws an error. Non-retryable errors are immediately propagated.
+     * 408 Request Timeout) using an exponential backoff strategy with optional jitter. If the maximum number
+     * of retries is exceeded, it throws an error. Non-retryable errors are immediately propagated.
      *
      * @template T The type of the value returned by the operation.
-     * @param {() => Promise<T>} operation - The asynchronous operation to execute.
-     * @returns {Promise<T>} A promise that resolves to the result of the operation if successful.
+     * @param operation - The asynchronous operation to execute.
+     * @returns A promise that resolves to the result of the operation if successful.
      * @throws {LokaliseError} If the maximum number of retries is reached or a non-retryable error occurs.
      */
     protected withExponentialBackoff<T>(operation: () => Promise<T>): Promise<T>;
     /**
      * Pauses execution for the specified number of milliseconds.
      *
-     * @param {number} ms - The time to sleep in milliseconds.
-     * @returns {Promise<void>} A promise that resolves after the specified time.
+     * @param ms - The time to sleep in milliseconds.
+     * @returns A promise that resolves after the specified time.
      */
     protected sleep(ms: number): Promise<void>;
 }
@@ -101,36 +101,36 @@ declare class LokaliseFileExchange {
 declare class LokaliseDownload extends LokaliseFileExchange {
     private readonly streamPipeline;
     /**
-     * Downloads translations from Lokalise, saving them to a ZIP file and then extracting them.
+     * Downloads translations from Lokalise, saving them to a ZIP file and extracting them.
      *
-     * @param {DownloadTranslationParams} downloadTranslationParams - Configuration for download, extraction, and retries.
+     * @param downloadTranslationParams - Configuration for download, extraction, and retries.
      * @throws {LokaliseError} If any step fails (e.g., download or extraction fails).
      */
     downloadTranslations(downloadTranslationParams: DownloadTranslationParams): Promise<void>;
     /**
      * Unpacks a ZIP file into the specified directory.
      *
-     * @param {string} zipFilePath - Path to the ZIP file.
-     * @param {string} outputDir - Directory to extract the files into.
-     * @throws {LokaliseError, Error} If extraction fails for any reason.
+     * @param zipFilePath - Path to the ZIP file.
+     * @param outputDir - Directory to extract the files into.
+     * @throws {LokaliseError} If extraction fails or malicious paths are detected.
      */
-    unpackZip(zipFilePath: string, outputDir: string): Promise<void>;
+    protected unpackZip(zipFilePath: string, outputDir: string): Promise<void>;
     /**
      * Downloads a ZIP file from the given URL.
      *
-     * @param {string} url - The URL of the ZIP file.
-     * @returns {Promise<string>} The file path of the downloaded ZIP file.
+     * @param url - The URL of the ZIP file.
+     * @returns The file path of the downloaded ZIP file.
      * @throws {LokaliseError} If the download fails or the response body is empty.
      */
-    downloadZip(url: string): Promise<string>;
+    protected downloadZip(url: string): Promise<string>;
     /**
      * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
      *
-     * @param {DownloadFileParams} downloadFileParams - Parameters for Lokalise API file download.
-     * @returns {Promise<DownloadBundle>} The downloaded bundle metadata.
+     * @param downloadFileParams - Parameters for Lokalise API file download.
+     * @returns The downloaded bundle metadata.
      * @throws {LokaliseError} If retries are exhausted or an API error occurs.
      */
-    getTranslationsBundle(downloadFileParams: DownloadFileParams): Promise<DownloadBundle>;
+    protected getTranslationsBundle(downloadFileParams: DownloadFileParams): Promise<DownloadBundle>;
 }
 
 interface ProcessedFile {

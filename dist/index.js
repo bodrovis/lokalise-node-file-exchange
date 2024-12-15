@@ -72,38 +72,46 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   /**
    * Creates a new instance of LokaliseFileExchange.
    *
-   * @param {ClientParams} clientConfig - Configuration for the Lokalise SDK.
-   * @param {LokaliseExchangeConfig} exchangeConfig - The configuration object for file exchange operations.
-   * @throws {Error} If the provided configuration is invalid.
+   * @param clientConfig - Configuration for the Lokalise SDK.
+   * @param exchangeConfig - The configuration object for file exchange operations.
+   * @throws {LokaliseError} If the provided configuration is invalid.
    */
   constructor(clientConfig, exchangeConfig) {
     if (!clientConfig.apiKey || typeof clientConfig.apiKey !== "string") {
-      throw new Error("Invalid or missing API token.");
+      throw new LokaliseError("Invalid or missing API token.", 401);
     }
     if (!exchangeConfig.projectId || typeof exchangeConfig.projectId !== "string") {
-      throw new Error("Invalid or missing Project ID.");
-    }
-    const mergedRetryParams = {
-      ..._LokaliseFileExchange.defaultRetryParams,
-      ...exchangeConfig.retryParams
-    };
-    if (mergedRetryParams.maxRetries < 0) {
-      throw new Error("maxRetries must be greater than or equal to zero.");
+      throw new LokaliseError("Invalid or missing Project ID.", 400);
     }
     this.apiClient = new LokaliseApi(clientConfig);
     this.projectId = exchangeConfig.projectId;
-    this.retryParams = mergedRetryParams;
+    this.retryParams = {
+      ..._LokaliseFileExchange.defaultRetryParams,
+      ...exchangeConfig.retryParams
+    };
+    if (this.retryParams.maxRetries < 0) {
+      throw new LokaliseError(
+        "maxRetries must be greater than or equal to zero.",
+        400
+      );
+    }
+    if (this.retryParams.initialSleepTime <= 0) {
+      throw new LokaliseError(
+        "initialSleepTime must be a positive value.",
+        400
+      );
+    }
   }
   /**
    * Executes an asynchronous operation with exponential backoff retry logic.
    *
    * Retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
-   * 408 Request Timeout) using an exponential backoff strategy. If the maximum number of retries is exceeded,
-   * it throws an error. Non-retryable errors are immediately propagated.
+   * 408 Request Timeout) using an exponential backoff strategy with optional jitter. If the maximum number
+   * of retries is exceeded, it throws an error. Non-retryable errors are immediately propagated.
    *
    * @template T The type of the value returned by the operation.
-   * @param {() => Promise<T>} operation - The asynchronous operation to execute.
-   * @returns {Promise<T>} A promise that resolves to the result of the operation if successful.
+   * @param operation - The asynchronous operation to execute.
+   * @returns A promise that resolves to the result of the operation if successful.
    * @throws {LokaliseError} If the maximum number of retries is reached or a non-retryable error occurs.
    */
   async withExponentialBackoff(operation) {
@@ -133,8 +141,8 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   /**
    * Pauses execution for the specified number of milliseconds.
    *
-   * @param {number} ms - The time to sleep in milliseconds.
-   * @returns {Promise<void>} A promise that resolves after the specified time.
+   * @param ms - The time to sleep in milliseconds.
+   * @returns A promise that resolves after the specified time.
    */
   sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -145,14 +153,14 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
 var LokaliseDownload = class extends LokaliseFileExchange {
   streamPipeline = promisify(pipeline);
   /**
-   * Downloads translations from Lokalise, saving them to a ZIP file and then extracting them.
+   * Downloads translations from Lokalise, saving them to a ZIP file and extracting them.
    *
-   * @param {DownloadTranslationParams} downloadTranslationParams - Configuration for download, extraction, and retries.
+   * @param downloadTranslationParams - Configuration for download, extraction, and retries.
    * @throws {LokaliseError} If any step fails (e.g., download or extraction fails).
    */
   async downloadTranslations(downloadTranslationParams) {
     const { downloadFileParams, extractParams = {} } = downloadTranslationParams;
-    const outputDir = extractParams.outputDir ?? "./";
+    const outputDir = path.resolve(extractParams.outputDir ?? "./");
     const translationsBundle = await this.getTranslationsBundle(downloadFileParams);
     const zipFilePath = await this.downloadZip(translationsBundle.bundle_url);
     try {
@@ -164,9 +172,9 @@ var LokaliseDownload = class extends LokaliseFileExchange {
   /**
    * Unpacks a ZIP file into the specified directory.
    *
-   * @param {string} zipFilePath - Path to the ZIP file.
-   * @param {string} outputDir - Directory to extract the files into.
-   * @throws {LokaliseError, Error} If extraction fails for any reason.
+   * @param zipFilePath - Path to the ZIP file.
+   * @param outputDir - Directory to extract the files into.
+   * @throws {LokaliseError} If extraction fails or malicious paths are detected.
    */
   async unpackZip(zipFilePath, outputDir) {
     const createDir = async (dir) => {
@@ -175,15 +183,26 @@ var LokaliseDownload = class extends LokaliseFileExchange {
     return new Promise((resolve, reject) => {
       yauzl.open(zipFilePath, { lazyEntries: true }, async (err, zipfile) => {
         if (err) {
-          return reject(err);
+          return reject(
+            new LokaliseError(
+              `Failed to open ZIP file at ${zipFilePath}: ${err.message}`
+            )
+          );
         }
         if (!zipfile) {
-          return reject(new LokaliseError("Failed to open ZIP file"));
+          return reject(
+            new LokaliseError(`ZIP file is invalid or empty: ${zipFilePath}`)
+          );
         }
         zipfile.readEntry();
         zipfile.on("entry", async (entry) => {
           try {
-            const fullPath = path.join(outputDir, entry.fileName);
+            const fullPath = path.resolve(outputDir, entry.fileName);
+            if (!fullPath.startsWith(outputDir)) {
+              throw new LokaliseError(
+                `Malicious ZIP entry detected: ${entry.fileName}`
+              );
+            }
             if (/\/$/.test(entry.fileName)) {
               await createDir(fullPath);
               zipfile.readEntry();
@@ -192,7 +211,11 @@ var LokaliseDownload = class extends LokaliseFileExchange {
               const writeStream = fs.createWriteStream(fullPath);
               zipfile.openReadStream(entry, (readErr, readStream) => {
                 if (readErr || !readStream) {
-                  return reject(new LokaliseError("Failed to read ZIP entry."));
+                  return reject(
+                    new LokaliseError(
+                      `Failed to read ZIP entry: ${entry.fileName}`
+                    )
+                  );
                 }
                 readStream.pipe(writeStream);
                 writeStream.on("finish", () => zipfile.readEntry());
@@ -211,11 +234,19 @@ var LokaliseDownload = class extends LokaliseFileExchange {
   /**
    * Downloads a ZIP file from the given URL.
    *
-   * @param {string} url - The URL of the ZIP file.
-   * @returns {Promise<string>} The file path of the downloaded ZIP file.
+   * @param url - The URL of the ZIP file.
+   * @returns The file path of the downloaded ZIP file.
    * @throws {LokaliseError} If the download fails or the response body is empty.
    */
   async downloadZip(url) {
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        throw new Error();
+      }
+    } catch {
+      throw new LokaliseError("A valid URL must start with 'http' or 'https'");
+    }
     const tempZipPath = path.join(
       os.tmpdir(),
       `lokalise-translations-${Date.now()}.zip`
@@ -223,7 +254,7 @@ var LokaliseDownload = class extends LokaliseFileExchange {
     const response = await fetch(url);
     if (!response.ok) {
       throw new LokaliseError(
-        `Failed to download ZIP file: ${response.statusText}`
+        `Failed to download ZIP file: ${response.statusText} (${response.status})`
       );
     }
     const body = response.body;
@@ -238,8 +269,8 @@ var LokaliseDownload = class extends LokaliseFileExchange {
   /**
    * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
    *
-   * @param {DownloadFileParams} downloadFileParams - Parameters for Lokalise API file download.
-   * @returns {Promise<DownloadBundle>} The downloaded bundle metadata.
+   * @param downloadFileParams - Parameters for Lokalise API file download.
+   * @returns The downloaded bundle metadata.
    * @throws {LokaliseError} If retries are exhausted or an API error occurs.
    */
   async getTranslationsBundle(downloadFileParams) {
@@ -307,45 +338,46 @@ var LokaliseUpload = class extends LokaliseFileExchange {
     fileNamePattern = ".*"
   } = {}) {
     const collectedFiles = [];
-    const traverseDirectory = async (dir) => {
+    const normalizedExtensions = extensions.map(
+      (ext) => ext.startsWith(".") ? ext : `.${ext}`
+    );
+    let regexPattern;
+    try {
+      regexPattern = new RegExp(fileNamePattern);
+    } catch {
+      throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
+    }
+    const queue = [...inputDirs.map((dir) => path2.resolve(dir))];
+    while (queue.length > 0) {
+      const dir = queue.shift();
+      if (!dir) {
+        continue;
+      }
       let entries;
       try {
         entries = await fs2.promises.readdir(dir, { withFileTypes: true });
       } catch {
-        return;
+        console.warn(`Skipping inaccessible directory: ${dir}`);
+        continue;
       }
-      const tasks = entries.map(async (entry) => {
+      for (const entry of entries) {
         const fullPath = path2.resolve(dir, entry.name);
         if (excludePatterns.some((pattern) => fullPath.includes(pattern))) {
-          return;
+          continue;
         }
         if (entry.isDirectory() && recursive) {
-          await traverseDirectory(fullPath);
+          queue.push(fullPath);
         } else if (entry.isFile()) {
           const fileExt = path2.extname(entry.name);
-          const matchesExtension = extensions.some(
-            (ext) => ext === ".*" || ext === fileExt
-          );
-          const matchesPattern = new RegExp(fileNamePattern).test(entry.name);
+          const matchesExtension = normalizedExtensions.includes(".*") || normalizedExtensions.includes(fileExt);
+          const matchesPattern = regexPattern.test(entry.name);
           if (matchesExtension && matchesPattern) {
             collectedFiles.push(fullPath);
           }
         }
-      });
-      await Promise.all(tasks);
-    };
-    const startTasks = inputDirs.map(async (dir) => {
-      try {
-        const stats = await fs2.promises.lstat(dir);
-        if (stats.isDirectory()) {
-          await traverseDirectory(path2.resolve(dir));
-        }
-      } catch {
-        return;
       }
-    });
-    await Promise.all(startTasks);
-    return collectedFiles;
+    }
+    return collectedFiles.sort();
   }
   /**
    * Uploads a single file to Lokalise.
