@@ -47,7 +47,7 @@ var LokaliseError = class extends Error {
 };
 
 // lib/services/LokaliseFileExchange.ts
-import { LokaliseApi } from "@lokalise/node-api";
+import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
 import { ApiError as LokaliseApiError } from "@lokalise/node-api";
 var LokaliseFileExchange = class _LokaliseFileExchange {
   /**
@@ -83,7 +83,12 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     if (!exchangeConfig.projectId || typeof exchangeConfig.projectId !== "string") {
       throw new LokaliseError("Invalid or missing Project ID.", 400);
     }
-    this.apiClient = new LokaliseApi(clientConfig);
+    const { useOAuth2 = false } = exchangeConfig;
+    if (useOAuth2) {
+      this.apiClient = new LokaliseApiOAuth(clientConfig);
+    } else {
+      this.apiClient = new LokaliseApi(clientConfig);
+    }
     this.projectId = exchangeConfig.projectId;
     this.retryParams = {
       ..._LokaliseFileExchange.defaultRetryParams,

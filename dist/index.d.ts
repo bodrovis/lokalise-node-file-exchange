@@ -24,6 +24,7 @@ interface FileUploadError {
 
 interface LokaliseExchangeConfig {
     projectId: string;
+    useOAuth2?: boolean;
     retryParams?: Partial<RetryParams>;
 }
 
