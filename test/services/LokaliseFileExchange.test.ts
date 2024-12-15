@@ -1,3 +1,4 @@
+import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
 import { LokaliseFileExchange } from "../../lib/services/LokaliseFileExchange.js";
 import { describe, expect, it } from "../setup.js";
 
@@ -11,6 +12,18 @@ describe("LokaliseFileExchange", () => {
 				{ projectId: "123.abc" },
 			);
 			expect(exchange).toBeInstanceOf(LokaliseFileExchange);
+			expect(exchange.apiClient).toBeInstanceOf(LokaliseApi);
+		});
+
+		it("should create an OAuth2-based instance with valid parameters", () => {
+			const exchange = new LokaliseFileExchange(
+				{
+					apiKey: "abc123",
+				},
+				{ projectId: "123.abc", useOAuth2: true },
+			);
+			expect(exchange).toBeInstanceOf(LokaliseFileExchange);
+			expect(exchange.apiClient).toBeInstanceOf(LokaliseApiOAuth);
 		});
 	});
 

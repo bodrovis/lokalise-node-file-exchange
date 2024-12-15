@@ -1,5 +1,7 @@
 # Lokalise translation file exchange for Node
 
+![CI](https://github.com/bodrovis/lokalise-node-file-exchange/actions/workflows/ci.yml/badge.svg)
+
 This package enables you to easily exchange translation files between your JavaScript/TypeScript project and [Lokalise TMS](https://lokalise.com).
 
 ## Prerequisites
@@ -93,6 +95,16 @@ const lokaliseUploader = new LokaliseUpload({apiKey}, {projectId});
 // OR
 const lokaliseDownloader = new LokaliseDownload({apiKey}, {projectId});
 ```
+
+If you're using [OAuth2 flow](https://lokalise.github.io/node-lokalise-api/additional_info/oauth2_flow), set `useOAuth2` option to `true`:
+
+```js
+const lokaliseUploader = new LokaliseUpload({apiKey}, {projectId, useOAuth2: true});
+// OR
+const lokaliseDownloader = new LokaliseDownload({apiKey}, {projectId, useOAuth2: true});
+```
+
+In this case make sure to provide access token for the `apiKey`.
 
 ### `ClientParams` configuration
 
@@ -284,4 +296,6 @@ Find the sample usage at [github.com/bodrovis/lokalise-node-file-exchange-sample
 
 ## License
 
-BSD 3 Clause
+Licensed under BSD 3 Clause
+
+(c) [Ilya Krukowski](https://bodrovis.tech/)

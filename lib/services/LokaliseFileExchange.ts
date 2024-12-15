@@ -1,4 +1,4 @@
-import { LokaliseApi } from "@lokalise/node-api";
+import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
 import type { ClientParams } from "@lokalise/node-api";
 import { ApiError as LokaliseApiError } from "@lokalise/node-api";
 import { LokaliseError } from "../errors/LokaliseError.js";
@@ -54,7 +54,14 @@ export class LokaliseFileExchange {
 			throw new LokaliseError("Invalid or missing Project ID.", 400);
 		}
 
-		this.apiClient = new LokaliseApi(clientConfig);
+		const { useOAuth2 = false } = exchangeConfig;
+
+		if (useOAuth2) {
+			this.apiClient = new LokaliseApiOAuth(clientConfig);
+		} else {
+			this.apiClient = new LokaliseApi(clientConfig);
+		}
+
 		this.projectId = exchangeConfig.projectId;
 		this.retryParams = {
 			...LokaliseFileExchange.defaultRetryParams,
