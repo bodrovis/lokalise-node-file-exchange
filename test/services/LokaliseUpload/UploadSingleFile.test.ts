@@ -34,8 +34,6 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 
 	afterAll(() => {
 		mockAgent.close();
-		const activeHandles = process.getActiveResourcesInfo();
-		console.log(activeHandles);
 	});
 
 	afterEach(() => {
