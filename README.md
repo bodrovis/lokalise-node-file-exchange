@@ -1,6 +1,6 @@
 # Lokalise translation file exchange for Node
 
-![npm](https://img.shields.io/npm/v/lokalise-node-file-exchange)
+![npm](https://img.shields.io/npm/v/lokalise-file-exchange)
 ![CI](https://github.com/bodrovis/lokalise-node-file-exchange/actions/workflows/ci.yml/badge.svg)
 
 This package enables you to easily exchange translation files between your JavaScript/TypeScript project and [Lokalise TMS](https://lokalise.com).
