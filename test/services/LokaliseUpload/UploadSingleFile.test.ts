@@ -192,7 +192,9 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 
 			const uploader = new FakeLokaliseUpload({ apiKey }, { projectId });
 			await expect(uploader.uploadSingleFile(mockParams)).rejects.toThrow(
-				new LokaliseError(mockError.message, mockError.code),
+				new LokaliseError(mockError.message, mockError.code, {
+					reason: "server error without details",
+				}),
 			);
 		});
 	});

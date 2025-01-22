@@ -211,7 +211,11 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
 			await expect(
 				downloader.getTranslationsBundle(mockParams),
-			).rejects.toThrow(new LokaliseError(mockError.message, mockError.code));
+			).rejects.toThrow(
+				new LokaliseError(mockError.message, mockError.code, {
+					reason: "server error without details",
+				}),
+			);
 		});
 
 		it("should throw a LokaliseError after maximum retries for 429", async () => {

@@ -35,14 +35,14 @@
 		"@types/mock-fs": "^4.13.4",
 		"@types/node": "^22.0.2",
 		"@types/yauzl": "^2.10.3",
-		"@vitest/coverage-istanbul": "^2.0.3",
+		"@vitest/coverage-istanbul": "^3.0.3",
 		"dotenv": "^16.0.0",
 		"mock-fs": "^5.4.1",
 		"rimraf": "^6.0.1",
 		"tsup": "^8.3.0",
 		"typescript": "^5.7.0",
 		"undici": "^7.0.0",
-		"vitest": "^2.0.3"
+		"vitest": "^3.0.3"
 	},
 	"bugs": {
 		"url": "https://github.com/bodrovis/lokalise-node-file-exchange/issues"
