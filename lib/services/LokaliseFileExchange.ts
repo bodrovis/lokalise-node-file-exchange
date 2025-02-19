@@ -33,6 +33,15 @@ export class LokaliseFileExchange {
 		initialSleepTime: 1000,
 	};
 
+	// Constants for process statuses
+	private readonly PENDING_STATUSES = [
+		"queued",
+		"pre_processing",
+		"running",
+		"post_processing",
+	];
+	private readonly FINISHED_STATUSES = ["finished", "cancelled", "failed"];
+
 	/**
 	 * Creates a new instance of LokaliseFileExchange.
 	 *
@@ -157,11 +166,7 @@ export class LokaliseFileExchange {
 
 			processMap.set(process.process_id, process);
 
-			if (
-				["queued", "pre_processing", "running", "post_processing"].includes(
-					process.status,
-				)
-			) {
+			if (this.PENDING_STATUSES.includes(process.status)) {
 				pendingProcessIds.add(process.process_id);
 			}
 		}
@@ -180,15 +185,11 @@ export class LokaliseFileExchange {
 
 						processMap.set(processId, updatedProcess);
 
-						if (
-							["finished", "cancelled", "failed"].includes(
-								updatedProcess.status,
-							)
-						) {
+						if (this.FINISHED_STATUSES.includes(updatedProcess.status)) {
 							pendingProcessIds.delete(processId);
 						}
-					} catch (error) {
-						console.warn(`Failed to fetch process ${processId}:`, error);
+					} catch (_error) {
+						// console.warn(`Failed to fetch process ${processId}:`, error);
 					}
 				}),
 			);

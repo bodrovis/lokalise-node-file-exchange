@@ -69,6 +69,14 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     maxRetries: 3,
     initialSleepTime: 1e3
   };
+  // Constants for process statuses
+  PENDING_STATUSES = [
+    "queued",
+    "pre_processing",
+    "running",
+    "post_processing"
+  ];
+  FINISHED_STATUSES = ["finished", "cancelled", "failed"];
   /**
    * Creates a new instance of LokaliseFileExchange.
    *
@@ -144,6 +152,52 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     throw new LokaliseError("Unexpected error during operation.", 500);
   }
   /**
+   * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
+   *
+   * @param {QueuedProcess[]} processes - The array of processes to poll.
+   * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
+   * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
+   * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
+   */
+  async pollProcesses(processes, initialWaitTime, maxWaitTime) {
+    const startTime = Date.now();
+    let waitTime = initialWaitTime;
+    const processMap = /* @__PURE__ */ new Map();
+    const pendingProcessIds = /* @__PURE__ */ new Set();
+    for (const process2 of processes) {
+      if (!process2.status) {
+        process2.status = "queued";
+      }
+      processMap.set(process2.process_id, process2);
+      if (this.PENDING_STATUSES.includes(process2.status)) {
+        pendingProcessIds.add(process2.process_id);
+      }
+    }
+    while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
+      await Promise.all(
+        [...pendingProcessIds].map(async (processId) => {
+          try {
+            const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
+            if (!updatedProcess.status) {
+              updatedProcess.status = "queued";
+            }
+            processMap.set(processId, updatedProcess);
+            if (this.FINISHED_STATUSES.includes(updatedProcess.status)) {
+              pendingProcessIds.delete(processId);
+            }
+          } catch (_error) {
+          }
+        })
+      );
+      if (pendingProcessIds.size === 0 || Date.now() - startTime >= maxWaitTime) {
+        break;
+      }
+      await this.sleep(waitTime);
+      waitTime = Math.min(waitTime * 2, maxWaitTime - (Date.now() - startTime));
+    }
+    return Array.from(processMap.values());
+  }
+  /**
    * Pauses execution for the specified number of milliseconds.
    *
    * @param ms - The time to sleep in milliseconds.
@@ -164,12 +218,46 @@ var LokaliseDownload = class extends LokaliseFileExchange {
    * @throws {LokaliseError} If any step fails (e.g., download or extraction fails).
    */
   async downloadTranslations(downloadTranslationParams) {
-    const { downloadFileParams, extractParams = {} } = downloadTranslationParams;
-    const outputDir = path.resolve(extractParams.outputDir ?? "./");
-    const translationsBundle = await this.getTranslationsBundle(downloadFileParams);
-    const zipFilePath = await this.downloadZip(translationsBundle.bundle_url);
+    const {
+      downloadFileParams,
+      extractParams = {},
+      processDownloadFileParams
+    } = downloadTranslationParams;
+    const defaultProcessParams = {
+      asyncDownload: false,
+      pollInitialWaitTime: 1e3,
+      pollMaximumWaitTime: 12e4
+    };
+    const { asyncDownload, pollInitialWaitTime, pollMaximumWaitTime } = {
+      ...defaultProcessParams,
+      ...processDownloadFileParams
+    };
+    let translationsBundleURL;
+    if (asyncDownload) {
+      const downloadProcess = await this.getTranslationsBundleAsync(downloadFileParams);
+      const completedProcess = (await this.pollProcesses(
+        [downloadProcess],
+        pollInitialWaitTime,
+        pollMaximumWaitTime
+      ))[0];
+      if (completedProcess.status === "finished") {
+        translationsBundleURL = completedProcess.details.download_url;
+      } else {
+        throw new LokaliseError(
+          `Download process took too long to finalize; gave up after ${pollMaximumWaitTime}ms`,
+          500
+        );
+      }
+    } else {
+      const translationsBundle = await this.getTranslationsBundle(downloadFileParams);
+      translationsBundleURL = translationsBundle.bundle_url;
+    }
+    const zipFilePath = await this.downloadZip(translationsBundleURL);
     try {
-      await this.unpackZip(zipFilePath, outputDir);
+      await this.unpackZip(
+        zipFilePath,
+        path.resolve(extractParams.outputDir ?? "./")
+      );
     } finally {
       await fs.promises.unlink(zipFilePath);
     }
@@ -203,7 +291,8 @@ var LokaliseDownload = class extends LokaliseFileExchange {
         zipfile.on("entry", async (entry) => {
           try {
             const fullPath = path.resolve(outputDir, entry.fileName);
-            if (!fullPath.startsWith(outputDir)) {
+            const relative = path.relative(outputDir, fullPath);
+            if (relative.startsWith("..") || path.isAbsolute(relative)) {
               throw new LokaliseError(
                 `Malicious ZIP entry detected: ${entry.fileName}`
               );
@@ -250,7 +339,9 @@ var LokaliseDownload = class extends LokaliseFileExchange {
         throw new Error();
       }
     } catch {
-      throw new LokaliseError("A valid URL must start with 'http' or 'https'");
+      throw new LokaliseError(
+        `A valid URL must start with 'http' or 'https', got ${url}`
+      );
     }
     const tempZipPath = path.join(
       os.tmpdir(),
@@ -281,6 +372,18 @@ var LokaliseDownload = class extends LokaliseFileExchange {
   async getTranslationsBundle(downloadFileParams) {
     return this.withExponentialBackoff(
       () => this.apiClient.files().download(this.projectId, downloadFileParams)
+    );
+  }
+  /**
+   * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
+   *
+   * @param downloadFileParams - Parameters for Lokalise API file download.
+   * @returns The queued process.
+   * @throws {LokaliseError} If retries are exhausted or an API error occurs.
+   */
+  async getTranslationsBundleAsync(downloadFileParams) {
+    return this.withExponentialBackoff(
+      () => this.apiClient.files().async_download(this.projectId, downloadFileParams)
     );
   }
 };
@@ -424,46 +527,6 @@ var LokaliseUpload = class extends LokaliseFileExchange {
       filename: relativePath,
       lang_iso: languageCode
     };
-  }
-  /**
-   * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
-   *
-   * @param {QueuedProcess[]} processes - The array of processes to poll.
-   * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
-   * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
-   * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
-   */
-  async pollProcesses(processes, initialWaitTime, maxWaitTime) {
-    const startTime = Date.now();
-    let waitTime = initialWaitTime;
-    const processMap = /* @__PURE__ */ new Map();
-    for (const proc of processes) {
-      processMap.set(proc.process_id, proc);
-    }
-    const pendingProcessIds = new Set(
-      processes.filter(
-        (p) => p.status === "queued" || p.status === "pre_processing" || p.status === "running" || p.status === "post_processing"
-      ).map((p) => p.process_id)
-    );
-    while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
-      await Promise.all(
-        [...pendingProcessIds].map(async (processId) => {
-          try {
-            const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
-            processMap.set(processId, updatedProcess);
-            if (updatedProcess.status === "finished" || updatedProcess.status === "cancelled" || updatedProcess.status === "failed") {
-              pendingProcessIds.delete(processId);
-            }
-          } catch {
-          }
-        })
-      );
-      if (pendingProcessIds.size > 0) {
-        await this.sleep(waitTime);
-        waitTime = Math.min(waitTime * 2, maxWaitTime / 4);
-      }
-    }
-    return Array.from(processMap.values());
   }
   /**
    * Uploads files in parallel with a limit on the number of concurrent uploads.

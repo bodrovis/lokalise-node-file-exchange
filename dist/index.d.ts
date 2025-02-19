@@ -1,4 +1,4 @@
-import { DownloadFileParams, UploadFileParams, LokaliseApi, ClientParams, DownloadBundle, QueuedProcess } from '@lokalise/node-api';
+import { DownloadFileParams, UploadFileParams, LokaliseApi, ClientParams, QueuedProcess, DownloadBundle } from '@lokalise/node-api';
 
 interface CollectFileParams {
     inputDirs?: string[];
@@ -12,9 +12,16 @@ interface ExtractParams {
     outputDir?: string;
 }
 
+interface ProcessDownloadFileParams {
+    asyncDownload?: boolean;
+    pollInitialWaitTime?: number;
+    pollMaximumWaitTime?: number;
+}
+
 interface DownloadTranslationParams {
     downloadFileParams: DownloadFileParams;
     extractParams?: ExtractParams;
+    processDownloadFileParams?: ProcessDownloadFileParams;
 }
 
 interface FileUploadError {
@@ -66,6 +73,8 @@ declare class LokaliseFileExchange {
      * Default retry parameters for API requests.
      */
     private static readonly defaultRetryParams;
+    private readonly PENDING_STATUSES;
+    private readonly FINISHED_STATUSES;
     /**
      * Creates a new instance of LokaliseFileExchange.
      *
@@ -87,6 +96,15 @@ declare class LokaliseFileExchange {
      * @throws {LokaliseError} If the maximum number of retries is reached or a non-retryable error occurs.
      */
     protected withExponentialBackoff<T>(operation: () => Promise<T>): Promise<T>;
+    /**
+     * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
+     *
+     * @param {QueuedProcess[]} processes - The array of processes to poll.
+     * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
+     * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
+     * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
+     */
+    protected pollProcesses(processes: QueuedProcess[], initialWaitTime: number, maxWaitTime: number): Promise<QueuedProcess[]>;
     /**
      * Pauses execution for the specified number of milliseconds.
      *
@@ -132,6 +150,14 @@ declare class LokaliseDownload extends LokaliseFileExchange {
      * @throws {LokaliseError} If retries are exhausted or an API error occurs.
      */
     protected getTranslationsBundle(downloadFileParams: DownloadFileParams): Promise<DownloadBundle>;
+    /**
+     * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
+     *
+     * @param downloadFileParams - Parameters for Lokalise API file download.
+     * @returns The queued process.
+     * @throws {LokaliseError} If retries are exhausted or an API error occurs.
+     */
+    protected getTranslationsBundleAsync(downloadFileParams: DownloadFileParams): Promise<QueuedProcess>;
 }
 
 interface ProcessedFile {
@@ -184,15 +210,6 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @returns {Promise<ProcessedFile>} A promise resolving with the processed file details, including base64 content, relative path, and language code.
      */
     protected processFile(file: string, projectRoot: string, languageInferer?: (filePath: string) => Promise<string> | string): Promise<ProcessedFile>;
-    /**
-     * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
-     *
-     * @param {QueuedProcess[]} processes - The array of processes to poll.
-     * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
-     * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
-     * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
-     */
-    private pollProcesses;
     /**
      * Uploads files in parallel with a limit on the number of concurrent uploads.
      *
