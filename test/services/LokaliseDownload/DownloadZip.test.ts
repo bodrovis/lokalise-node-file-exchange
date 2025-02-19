@@ -129,7 +129,7 @@ describe("LokaliseDownload: downloadZip()", () => {
 
 		it("should throw an error for a malformed URL", async () => {
 			await expect(downloader.downloadZip("htp://invalid-url")).rejects.toThrow(
-				"A valid URL must start with 'http' or 'https'",
+				"A valid URL must start with 'http' or 'https', got htp://invalid-url",
 			);
 		});
 

@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream";
 import { promisify } from "node:util";
-import type { DownloadBundle, DownloadFileParams } from "@lokalise/node-api";
+import type {
+	DownloadBundle,
+	DownloadFileParams,
+	QueuedProcess,
+} from "@lokalise/node-api";
 import yauzl from "yauzl";
 import { LokaliseError } from "../errors/LokaliseError.js";
 import type { DownloadTranslationParams } from "../interfaces/index.js";
@@ -24,19 +28,58 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	async downloadTranslations(
 		downloadTranslationParams: DownloadTranslationParams,
 	): Promise<void> {
-		const { downloadFileParams, extractParams = {} } =
-			downloadTranslationParams;
+		const {
+			downloadFileParams,
+			extractParams = {},
+			processDownloadFileParams,
+		} = downloadTranslationParams;
 
-		const outputDir = path.resolve(extractParams.outputDir ?? "./");
+		const defaultProcessParams = {
+			asyncDownload: false,
+			pollInitialWaitTime: 1000,
+			pollMaximumWaitTime: 120_000,
+		};
 
-		// Step 1: Retrieve ZIP bundle URL
-		const translationsBundle =
-			await this.getTranslationsBundle(downloadFileParams);
-		const zipFilePath = await this.downloadZip(translationsBundle.bundle_url);
+		const { asyncDownload, pollInitialWaitTime, pollMaximumWaitTime } = {
+			...defaultProcessParams,
+			...processDownloadFileParams,
+		};
 
-		// Step 2: Extract ZIP to outputDir
+		let translationsBundleURL: string;
+
+		if (asyncDownload) {
+			const downloadProcess =
+				await this.getTranslationsBundleAsync(downloadFileParams);
+
+			const completedProcess = (
+				await this.pollProcesses(
+					[downloadProcess],
+					pollInitialWaitTime,
+					pollMaximumWaitTime,
+				)
+			)[0];
+
+			if (completedProcess.status === "finished") {
+				translationsBundleURL = completedProcess.details.download_url;
+			} else {
+				throw new LokaliseError(
+					`Download process took too long to finalize; gave up after ${pollMaximumWaitTime}ms`,
+					500,
+				);
+			}
+		} else {
+			const translationsBundle =
+				await this.getTranslationsBundle(downloadFileParams);
+			translationsBundleURL = translationsBundle.bundle_url;
+		}
+
+		const zipFilePath = await this.downloadZip(translationsBundleURL);
+
 		try {
-			await this.unpackZip(zipFilePath, outputDir);
+			await this.unpackZip(
+				zipFilePath,
+				path.resolve(extractParams.outputDir ?? "./"),
+			);
 		} finally {
 			await fs.promises.unlink(zipFilePath); // Cleanup ZIP file
 		}
@@ -78,7 +121,8 @@ export class LokaliseDownload extends LokaliseFileExchange {
 					try {
 						// Validate paths to avoid path traversal issues
 						const fullPath = path.resolve(outputDir, entry.fileName);
-						if (!fullPath.startsWith(outputDir)) {
+						const relative = path.relative(outputDir, fullPath);
+						if (relative.startsWith("..") || path.isAbsolute(relative)) {
 							throw new LokaliseError(
 								`Malicious ZIP entry detected: ${entry.fileName}`,
 							);
@@ -130,7 +174,9 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				throw new Error();
 			}
 		} catch {
-			throw new LokaliseError("A valid URL must start with 'http' or 'https'");
+			throw new LokaliseError(
+				`A valid URL must start with 'http' or 'https', got ${url}`,
+			);
 		}
 
 		const tempZipPath = path.join(
@@ -168,6 +214,21 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	): Promise<DownloadBundle> {
 		return this.withExponentialBackoff(() =>
 			this.apiClient.files().download(this.projectId, downloadFileParams),
+		);
+	}
+
+	/**
+	 * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
+	 *
+	 * @param downloadFileParams - Parameters for Lokalise API file download.
+	 * @returns The queued process.
+	 * @throws {LokaliseError} If retries are exhausted or an API error occurs.
+	 */
+	protected async getTranslationsBundleAsync(
+		downloadFileParams: DownloadFileParams,
+	): Promise<QueuedProcess> {
+		return this.withExponentialBackoff(() =>
+			this.apiClient.files().async_download(this.projectId, downloadFileParams),
 		);
 	}
 }

@@ -50,7 +50,6 @@ console.log(errors); // Array of errors (if any)
 
 ### Downloading translation files
 
-
 Use the `LokaliseDownload` class to download translation files from Lokalise into your project:
 
 ```js
@@ -129,10 +128,10 @@ The second object, `LokaliseExchangeConfig`, contains additional parameters:
 To download translation files from Lokalise into your project, use the `downloadTranslations()` method on the client.
 
 ```js
-await lokaliseDownloader.downloadTranslations({ downloadFileParams, extractParams });
+await lokaliseDownloader.downloadTranslations({ downloadFileParams, extractParams, processDownloadFileParams });
 ```
 
-`downloadTranslations()` accepts a single object, `DownloadTranslationParams`, with two attributes.
+`downloadTranslations()` accepts a single object, `DownloadTranslationParams`, with three attributes.
 
 ### DownloadFileParams
 
@@ -147,6 +146,16 @@ The `DownloadFileParams` attribute contains all download parameters passed direc
 After downloading the translation bundle, the client extracts it automatically. You can control the extraction process with the following parameter:
 
 - `outputDir` (`string`, optional): Specifies the directory where the archive is extracted. The default value is `"./"` (project root).
+
+### ProcessDownloadFileParams
+
+By default, all downloads are performed synchronously. However, for larger projects it might be beneficial to use asynchronous downloading. To achieve that, configure `processDownloadFileParams` that accepts:
+
+- `asyncDownload` (`boolean`): Enable or disable asynchronous downloads. The default value is `false`.
+- `pollInitialWaitTime` (`number`): Initial wait time (in milliseconds) before polling download statuses.
+- `pollMaximumWaitTime` (`number`): Maximum wait time (in milliseconds) for polling.
+
+When asynchronous download is enabled, library will try to poll for the download process status. Once the bundle is available, your translations will be automatically extracted.
 
 ## Recommendations for downloading
 

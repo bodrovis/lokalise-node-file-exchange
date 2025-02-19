@@ -1,4 +1,8 @@
-import type { DownloadBundle, DownloadFileParams } from "@lokalise/node-api";
+import type {
+	DownloadBundle,
+	DownloadFileParams,
+	QueuedProcess,
+} from "@lokalise/node-api";
 import { LokaliseDownload } from "../../../lib/services/LokaliseDownload.js";
 
 // Public morozov
@@ -7,6 +11,12 @@ export class FakeLokaliseDownload extends LokaliseDownload {
 		downloadFileParams: DownloadFileParams,
 	): Promise<DownloadBundle> {
 		return await super.getTranslationsBundle(downloadFileParams);
+	}
+
+	public async getTranslationsBundleAsync(
+		downloadFileParams: DownloadFileParams,
+	): Promise<QueuedProcess> {
+		return await super.getTranslationsBundleAsync(downloadFileParams);
 	}
 
 	public async downloadZip(url: string): Promise<string> {
@@ -18,5 +28,13 @@ export class FakeLokaliseDownload extends LokaliseDownload {
 		outputDir: string,
 	): Promise<void> {
 		return await super.unpackZip(zipFilePath, outputDir);
+	}
+
+	public async pollProcesses(
+		processes: QueuedProcess[],
+		initialWaitTime: number,
+		maxWaitTime: number,
+	): Promise<QueuedProcess[]> {
+		return await super.pollProcesses(processes, initialWaitTime, maxWaitTime);
 	}
 }

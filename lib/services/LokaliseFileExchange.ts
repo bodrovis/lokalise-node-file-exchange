@@ -1,6 +1,7 @@
 import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
 import type { ClientParams } from "@lokalise/node-api";
 import { ApiError as LokaliseApiError } from "@lokalise/node-api";
+import type { QueuedProcess } from "@lokalise/node-api";
 import { LokaliseError } from "../errors/LokaliseError.js";
 import type { LokaliseExchangeConfig } from "../interfaces/LokaliseExchangeConfig.js";
 import type { RetryParams } from "../interfaces/index.js";
@@ -126,6 +127,84 @@ export class LokaliseFileExchange {
 
 		// This line is unreachable but keeps TS happy.
 		throw new LokaliseError("Unexpected error during operation.", 500);
+	}
+
+	/**
+	 * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
+	 *
+	 * @param {QueuedProcess[]} processes - The array of processes to poll.
+	 * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
+	 * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
+	 * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
+	 */
+	protected async pollProcesses(
+		processes: QueuedProcess[],
+		initialWaitTime: number,
+		maxWaitTime: number,
+	): Promise<QueuedProcess[]> {
+		const startTime = Date.now();
+		let waitTime = initialWaitTime;
+
+		const processMap = new Map<string, QueuedProcess>();
+
+		// Initialize processMap and set a default status if missing
+		const pendingProcessIds = new Set<string>();
+
+		for (const process of processes) {
+			if (!process.status) {
+				process.status = "queued"; // Assign default status if missing
+			}
+
+			processMap.set(process.process_id, process);
+
+			if (
+				["queued", "pre_processing", "running", "post_processing"].includes(
+					process.status,
+				)
+			) {
+				pendingProcessIds.add(process.process_id);
+			}
+		}
+
+		while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
+			await Promise.all(
+				[...pendingProcessIds].map(async (processId) => {
+					try {
+						const updatedProcess = await this.apiClient
+							.queuedProcesses()
+							.get(processId, { project_id: this.projectId });
+
+						if (!updatedProcess.status) {
+							updatedProcess.status = "queued"; // Ensure missing status is defaulted
+						}
+
+						processMap.set(processId, updatedProcess);
+
+						if (
+							["finished", "cancelled", "failed"].includes(
+								updatedProcess.status,
+							)
+						) {
+							pendingProcessIds.delete(processId);
+						}
+					} catch (error) {
+						console.warn(`Failed to fetch process ${processId}:`, error);
+					}
+				}),
+			);
+
+			if (
+				pendingProcessIds.size === 0 ||
+				Date.now() - startTime >= maxWaitTime
+			) {
+				break;
+			}
+
+			await this.sleep(waitTime);
+			waitTime = Math.min(waitTime * 2, maxWaitTime - (Date.now() - startTime));
+		}
+
+		return Array.from(processMap.values());
 	}
 
 	/**
