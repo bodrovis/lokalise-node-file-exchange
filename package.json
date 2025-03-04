@@ -27,7 +27,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@lokalise/node-api": "^13.0.0",
+		"@lokalise/node-api": "^14.0.0",
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {
@@ -40,7 +40,7 @@
 		"mock-fs": "^5.4.1",
 		"rimraf": "^6.0.1",
 		"tsup": "^8.3.0",
-		"typescript": "^5.7.0",
+		"typescript": "^5.8.2",
 		"undici": "^7.0.0",
 		"vitest": "^3.0.3"
 	},

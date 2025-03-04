@@ -6,7 +6,7 @@ const isWindows = process.platform === "win32";
 
 export default defineConfig({
 	esbuild: {
-		target: "es2022",
+		target: "es2024",
 	},
 	test: {
 		silent: isCI,

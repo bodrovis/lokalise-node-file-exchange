@@ -32,7 +32,7 @@ export class LokaliseError extends Error implements ILokaliseError {
 	 *
 	 * @returns The formatted error message.
 	 */
-	toString(): string {
+	override toString(): string {
 		let baseMessage = `LokaliseError: ${this.message}`;
 		if (this.code) {
 			baseMessage += ` (Code: ${this.code})`;

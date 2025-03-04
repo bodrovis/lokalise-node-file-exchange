@@ -267,4 +267,4 @@ declare class LokaliseError extends Error implements LokaliseError$1 {
     toString(): string;
 }
 
-export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, type FileUploadError, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseFileExchange, LokaliseUpload, type ProcessUploadFileParams, type RetryParams, type UploadTranslationParams };
+export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, type FileUploadError, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseFileExchange, LokaliseUpload, type ProcessDownloadFileParams, type ProcessUploadFileParams, type RetryParams, type UploadTranslationParams };
