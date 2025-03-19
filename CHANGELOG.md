@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.0
+
+* Update `@lokalise/node-api` to v14
+
 ## 1.1.0 (19-Feb-2025)
 
 * Add support for [asyncronous file downloads](https://developers.lokalise.com/reference/download-files-async). The library will automatically check the download process status, wait for completion and extract your translations:
