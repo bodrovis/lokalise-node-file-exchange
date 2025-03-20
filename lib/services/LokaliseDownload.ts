@@ -38,9 +38,15 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			asyncDownload: false,
 			pollInitialWaitTime: 1000,
 			pollMaximumWaitTime: 120_000,
+			bundleDownloadTimeout: undefined,
 		};
 
-		const { asyncDownload, pollInitialWaitTime, pollMaximumWaitTime } = {
+		const {
+			asyncDownload,
+			pollInitialWaitTime,
+			pollMaximumWaitTime,
+			bundleDownloadTimeout,
+		} = {
 			...defaultProcessParams,
 			...processDownloadFileParams,
 		};
@@ -73,7 +79,10 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			translationsBundleURL = translationsBundle.bundle_url;
 		}
 
-		const zipFilePath = await this.downloadZip(translationsBundleURL);
+		const zipFilePath = await this.downloadZip(
+			translationsBundleURL,
+			bundleDownloadTimeout,
+		);
 
 		try {
 			await this.unpackZip(
@@ -167,16 +176,12 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	 * @returns The file path of the downloaded ZIP file.
 	 * @throws {LokaliseError} If the download fails or the response body is empty.
 	 */
-	protected async downloadZip(url: string): Promise<string> {
-		try {
-			const parsedUrl = new URL(url);
-			if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-				throw new Error();
-			}
-		} catch {
-			throw new LokaliseError(
-				`A valid URL must start with 'http' or 'https', got ${url}`,
-			);
+	protected async downloadZip(
+		url: string,
+		downloadTimeout: number | undefined,
+	): Promise<string> {
+		if (!/^https?:\/\//.test(url)) {
+			throw new LokaliseError(`Invalid URL: ${url}`);
 		}
 
 		const tempZipPath = path.join(
@@ -184,7 +189,44 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			`lokalise-translations-${Date.now()}.zip`,
 		);
 
-		const response = await fetch(url);
+		const controller = new AbortController();
+		let timeoutId: NodeJS.Timeout | null = null;
+		let response: Response;
+
+		if (downloadTimeout && downloadTimeout > 0) {
+			timeoutId = setTimeout(() => controller.abort(), downloadTimeout);
+		}
+
+		try {
+			response = await fetch(url, {
+				signal: controller.signal,
+			});
+		} catch (err) {
+			if (err instanceof Error) {
+				if (err.name === "AbortError") {
+					throw new LokaliseError(
+						`Request timed out after ${downloadTimeout}ms`,
+						408,
+						{
+							reason: "timeout",
+						},
+					);
+				}
+
+				throw new LokaliseError(err.message, 500, {
+					reason: "network or fetch error",
+				});
+			}
+
+			throw new LokaliseError("An unknown error occurred", 500, {
+				reason: String(err),
+			});
+		} finally {
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+			}
+		}
+
 		if (!response.ok) {
 			throw new LokaliseError(
 				`Failed to download ZIP file: ${response.statusText} (${response.status})`,

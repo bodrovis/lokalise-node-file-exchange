@@ -108,6 +108,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 					asyncDownload: true,
 					pollInitialWaitTime: 500,
 					pollMaximumWaitTime: 5000,
+					bundleDownloadTimeout: 10000,
 				},
 			});
 
@@ -120,7 +121,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			expect(jsonContent).toEqual({ welcome: "Bienvenue!" });
 
 			expect(unlinkSpy).toHaveBeenCalledWith(demoZipPath);
-			expect(downloadZipSpy).toHaveBeenCalledWith(fakeDownloadUrl);
+			expect(downloadZipSpy).toHaveBeenCalledWith(fakeDownloadUrl, 10000);
 		});
 	});
 
@@ -209,9 +210,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 						pollMaximumWaitTime: 1000,
 					},
 				}),
-			).rejects.toThrow(
-				"A valid URL must start with 'http' or 'https', got undefined",
-			);
+			).rejects.toThrow("Invalid URL: undefined");
 		});
 
 		it("should throw an error if downloadZip fails", async () => {
@@ -317,6 +316,8 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				process_id: processId,
 			};
 
+			const url = "ftp://example.com/fake.zip";
+
 			mockPool
 				.intercept({
 					path: `/api2/projects/${projectId}/files/async-download`,
@@ -329,7 +330,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				process_id: processId,
 				status: "finished",
 				details: {
-					download_url: "ftp://example.com/fake.zip",
+					download_url: url,
 				},
 				type: "file-import",
 				message: "",
@@ -352,7 +353,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 						pollMaximumWaitTime: 1000,
 					},
 				}),
-			).rejects.toThrow("A valid URL must start with 'http' or 'https'");
+			).rejects.toThrow(`Invalid URL: ${url}`);
 		});
 	});
 });

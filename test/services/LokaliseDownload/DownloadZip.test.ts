@@ -129,7 +129,7 @@ describe("LokaliseDownload: downloadZip()", () => {
 
 		it("should throw an error for a malformed URL", async () => {
 			await expect(downloader.downloadZip("htp://invalid-url")).rejects.toThrow(
-				"A valid URL must start with 'http' or 'https', got htp://invalid-url",
+				"Invalid URL: htp://invalid-url",
 			);
 		});
 
@@ -183,6 +183,29 @@ describe("LokaliseDownload: downloadZip()", () => {
 			await expect(
 				downloader.downloadZip("https://example.com/download.zip"),
 			).rejects.toThrow("Stream write error");
+		});
+
+		it("should throw a timeout error if the download takes too long", async () => {
+			vi.spyOn(global, "fetch").mockImplementation(
+				() =>
+					new Promise((_, reject) => {
+						setTimeout(
+							() =>
+								reject(
+									new DOMException("The operation was aborted.", "AbortError"),
+								),
+							5,
+						);
+					}),
+			);
+
+			await expect(
+				downloader.downloadZip("https://example.com/download.zip", 1),
+			).rejects.toThrow(
+				new LokaliseError("Request timed out after 1ms", 408, {
+					reason: "timeout",
+				}),
+			);
 		});
 	});
 

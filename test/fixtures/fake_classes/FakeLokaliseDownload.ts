@@ -19,8 +19,11 @@ export class FakeLokaliseDownload extends LokaliseDownload {
 		return await super.getTranslationsBundleAsync(downloadFileParams);
 	}
 
-	public async downloadZip(url: string): Promise<string> {
-		return await super.downloadZip(url);
+	public async downloadZip(
+		url: string,
+		downloadTimeout?: number | undefined,
+	): Promise<string> {
+		return await super.downloadZip(url, downloadTimeout);
 	}
 
 	public async unpackZip(

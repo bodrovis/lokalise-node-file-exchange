@@ -154,6 +154,7 @@ By default, all downloads are performed synchronously. However, for larger proje
 - `asyncDownload` (`boolean`): Enable or disable asynchronous downloads. The default value is `false`.
 - `pollInitialWaitTime` (`number`): Initial wait time (in milliseconds) before polling download statuses.
 - `pollMaximumWaitTime` (`number`): Maximum wait time (in milliseconds) for polling.
+- `bundleDownloadTimeout` (`number`): Maximum time (in milliseconds) to wait for the translation bundle download to complete before aborting. The default value is `undefined` (no timeout).
 
 When asynchronous download is enabled, library will try to poll for the download process status. Once the bundle is available, your translations will be automatically extracted.
 

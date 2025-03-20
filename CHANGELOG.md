@@ -1,6 +1,18 @@
 # Changelog
 
-## 2.0.0
+## 2.0.0 (20-Mar-2025)
+
+* Added new `bundleDownloadTimeout` parameter for the download client. It sets the maximum time (in milliseconds) to wait for the translation bundle download to complete before aborting. The default value is `undefined` (no timeout).
+
+```js
+await downloader.downloadTranslations({
+  downloadFileParams,
+  extractParams,
+  processDownloadFileParams: {
+    bundleDownloadTimeout: 10000, // Wait up to 10 seconds for the translation bundle to download
+  }
+);
+```
 
 * Update `@lokalise/node-api` to v14
 

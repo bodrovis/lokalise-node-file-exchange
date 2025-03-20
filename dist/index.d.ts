@@ -16,6 +16,7 @@ interface ProcessDownloadFileParams {
     asyncDownload?: boolean;
     pollInitialWaitTime?: number;
     pollMaximumWaitTime?: number;
+    bundleDownloadTimeout?: number;
 }
 
 interface DownloadTranslationParams {
@@ -141,7 +142,7 @@ declare class LokaliseDownload extends LokaliseFileExchange {
      * @returns The file path of the downloaded ZIP file.
      * @throws {LokaliseError} If the download fails or the response body is empty.
      */
-    protected downloadZip(url: string): Promise<string>;
+    protected downloadZip(url: string, downloadTimeout: number | undefined): Promise<string>;
     /**
      * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
      *
