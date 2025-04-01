@@ -49,6 +49,7 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 			const mockResponse = {
 				project_id: projectId,
 				bundle_url: "https://example.com/fake-bundle-url",
+				responseTooBig: false,
 			};
 
 			mockPool
@@ -69,6 +70,7 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 			const mockResponse = {
 				project_id: projectId,
 				bundle_url: "https://example.com/fake-bundle-url",
+				responseTooBig: false,
 			};
 
 			mockPool
@@ -94,6 +96,7 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 			const mockResponse = {
 				project_id: projectId,
 				bundle_url: "https://example.com/fake-bundle-url",
+				responseTooBig: false,
 			};
 
 			const retries = 3;
@@ -145,6 +148,7 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 			const mockResponse = {
 				project_id: projectId,
 				bundle_url: "https://example.com/fake-bundle-url",
+				responseTooBig: false,
 			};
 
 			const retries = 3;
@@ -264,6 +268,7 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 			const mockResponse = {
 				project_id: projectId,
 				bundle_url: "https://example.com/fake-bundle-url",
+				responseTooBig: false,
 			};
 
 			const retries = 3;

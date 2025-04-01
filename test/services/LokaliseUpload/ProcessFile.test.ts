@@ -81,6 +81,56 @@ describe("LokaliseUpload: processFile()", () => {
 		});
 	});
 
+	describe("Filename Inferer", () => {
+		it("should allow to set filename inferer", async () => {
+			const result = await lokaliseUpload.processFile(
+				"/project/locales/nested/es.json",
+				"/project",
+				undefined,
+				(filePath) => {
+					return filePath.split("/").at(-1) as string;
+				},
+			);
+			expect(result).toEqual({
+				data: Buffer.from('{"clave": "valor"}').toString("base64"),
+				filename: "es.json",
+				lang_iso: "es",
+			});
+		});
+
+		it("should use default filename if the inferer throws", async () => {
+			const result = await lokaliseUpload.processFile(
+				"/project/locales/nested/es.json",
+				"/project",
+				undefined,
+				(_filePath) => {
+					throw Error();
+				},
+			);
+			expect(result).toEqual({
+				data: Buffer.from('{"clave": "valor"}').toString("base64"),
+				filename: "locales/nested/es.json",
+				lang_iso: "es",
+			});
+		});
+
+		it("should use default filename if the inferer return an empty string", async () => {
+			const result = await lokaliseUpload.processFile(
+				"/project/locales/nested/es.json",
+				"/project",
+				undefined,
+				(_filePath) => {
+					return " ";
+				},
+			);
+			expect(result).toEqual({
+				data: Buffer.from('{"clave": "valor"}').toString("base64"),
+				filename: "locales/nested/es.json",
+				lang_iso: "es",
+			});
+		});
+	});
+
 	describe("Language Inferer", () => {
 		it("should allow to set language inferer", async () => {
 			const result = await lokaliseUpload.processFile(

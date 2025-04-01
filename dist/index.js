@@ -454,7 +454,8 @@ var LokaliseUpload = class extends LokaliseFileExchange {
     const { processes, errors } = await this.parallelUpload(
       collectedFiles,
       uploadFileParams,
-      processUploadFileParams?.languageInferer
+      processUploadFileParams?.languageInferer,
+      processUploadFileParams?.filenameInferer
     );
     let completedProcesses = processes;
     if (pollStatuses) {
@@ -540,13 +541,19 @@ var LokaliseUpload = class extends LokaliseFileExchange {
    * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
    * @returns {Promise<ProcessedFile>} A promise resolving with the processed file details, including base64 content, relative path, and language code.
    */
-  async processFile(file, projectRoot, languageInferer) {
-    const fileContent = await fs2.promises.readFile(file);
-    const base64Data = fileContent.toString("base64");
-    const relativePath = path2.posix.relative(
-      projectRoot.split(path2.sep).join(path2.posix.sep),
-      file.split(path2.sep).join(path2.posix.sep)
-    );
+  async processFile(file, projectRoot, languageInferer, filenameInferer) {
+    let relativePath;
+    try {
+      relativePath = filenameInferer ? await filenameInferer(file) : "";
+      if (!relativePath.trim()) {
+        throw new Error("Invalid filename: empty or only whitespace");
+      }
+    } catch {
+      relativePath = path2.posix.relative(
+        projectRoot.split(path2.sep).join(path2.posix.sep),
+        file.split(path2.sep).join(path2.posix.sep)
+      );
+    }
     let languageCode;
     try {
       languageCode = languageInferer ? await languageInferer(file) : "";
@@ -556,6 +563,8 @@ var LokaliseUpload = class extends LokaliseFileExchange {
     } catch {
       languageCode = path2.parse(path2.basename(relativePath)).name;
     }
+    const fileContent = await fs2.promises.readFile(file);
+    const base64Data = fileContent.toString("base64");
     return {
       data: base64Data,
       filename: relativePath,
@@ -570,7 +579,7 @@ var LokaliseUpload = class extends LokaliseFileExchange {
    * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
    * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
    */
-  async parallelUpload(files, baseUploadFileParams = {}, languageInferer) {
+  async parallelUpload(files, baseUploadFileParams = {}, languageInferer, filenameInferer) {
     const projectRoot = process.cwd();
     const queuedProcesses = [];
     const errors = [];
@@ -585,7 +594,8 @@ var LokaliseUpload = class extends LokaliseFileExchange {
             const processedFileParams = await this.processFile(
               file,
               projectRoot,
-              languageInferer
+              languageInferer,
+              filenameInferer
             );
             const queuedProcess = await this.uploadSingleFile({
               ...baseUploadFileParams,

@@ -38,6 +38,7 @@ interface LokaliseExchangeConfig {
 
 interface ProcessUploadFileParams {
     languageInferer?: (filePath: string) => Promise<string> | string;
+    filenameInferer?: (filePath: string) => Promise<string> | string;
     pollStatuses?: boolean;
     pollInitialWaitTime?: number;
     pollMaximumWaitTime?: number;
@@ -48,8 +49,12 @@ interface RetryParams {
     initialSleepTime: number;
 }
 
+type UploadFileParamsBase = Omit<UploadFileParams, "data" | "filename" | "lang_iso">;
+interface PartialUploadFileParams extends UploadFileParamsBase {
+}
+
 interface UploadTranslationParams {
-    uploadFileParams?: Partial<UploadFileParams>;
+    uploadFileParams?: PartialUploadFileParams;
     collectFileParams?: CollectFileParams;
     processUploadFileParams?: ProcessUploadFileParams;
 }
@@ -210,7 +215,7 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
      * @returns {Promise<ProcessedFile>} A promise resolving with the processed file details, including base64 content, relative path, and language code.
      */
-    protected processFile(file: string, projectRoot: string, languageInferer?: (filePath: string) => Promise<string> | string): Promise<ProcessedFile>;
+    protected processFile(file: string, projectRoot: string, languageInferer?: (filePath: string) => Promise<string> | string, filenameInferer?: (filePath: string) => Promise<string> | string): Promise<ProcessedFile>;
     /**
      * Uploads files in parallel with a limit on the number of concurrent uploads.
      *
@@ -268,4 +273,4 @@ declare class LokaliseError extends Error implements LokaliseError$1 {
     toString(): string;
 }
 
-export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, type FileUploadError, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseFileExchange, LokaliseUpload, type ProcessDownloadFileParams, type ProcessUploadFileParams, type RetryParams, type UploadTranslationParams };
+export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, type FileUploadError, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseFileExchange, LokaliseUpload, type PartialUploadFileParams, type ProcessDownloadFileParams, type ProcessUploadFileParams, type RetryParams, type UploadTranslationParams };

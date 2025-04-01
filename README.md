@@ -223,6 +223,7 @@ This attribute determines which files are included or excluded from the upload. 
 This attribute provides advanced configuration for the upload process.
 
 - `languageInferer`: A function to infer the language ISO code for uploaded files.
+- `filenameInferer`: A function to infer the filename for uploaded files.
 - `pollStatuses` (`boolean`): Whether to wait for Lokalise to process the uploaded files. Default: `false`.
 - `pollInitialWaitTime` (`number`): Initial wait time (in milliseconds) before polling upload statuses.
 - `pollMaximumWaitTime` (`number`): Maximum wait time (in milliseconds) for polling.
@@ -232,7 +233,7 @@ This attribute provides advanced configuration for the upload process.
 Lokalise requires a `lang_iso` parameter for every file. By default, the client infers this from the filename (e.g., `en.json` > `lang_iso: "en"`, `fr_FR.xml` > `lang_iso: "fr_FR"`). If the project lacks the corresponding language, the upload fails.
 
 For custom logic, use the `languageInferer` function, which has the signature:  
-`(filePath: string) => Promise<string> | string`. This function returns a language ISO code or uses the filename if it fails or returns an empty string.
+`(filePath: string) => Promise<string> | string`. If this function fails or returns an empty string, the filename is used as a language ISO code.
 
 **Example: Inferring from file content**
 
@@ -282,6 +283,13 @@ const { processes, errors } = await lokaliseUploader.uploadTranslations({
   }
 });
 ```
+
+#### Inferring filename
+
+Lokalise requires a `filename` parameter for every file. By default, the client infers this from the file path relative to the project root.
+
+For custom logic, use the `filenameInferer` function, which has the signature:  
+`(filePath: string) => Promise<string> | string`.
 
 #### Polling for upload statuses
 

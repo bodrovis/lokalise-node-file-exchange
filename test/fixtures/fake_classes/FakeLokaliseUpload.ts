@@ -15,8 +15,14 @@ export class FakeLokaliseUpload extends LokaliseUpload {
 		file: string,
 		projectRoot: string,
 		languageInferer?: (filePath: string) => Promise<string> | string,
+		filenameInferer?: (filePath: string) => Promise<string> | string,
 	): Promise<ProcessedFile> {
-		return await super.processFile(file, projectRoot, languageInferer);
+		return await super.processFile(
+			file,
+			projectRoot,
+			languageInferer,
+			filenameInferer,
+		);
 	}
 
 	public async collectFiles({

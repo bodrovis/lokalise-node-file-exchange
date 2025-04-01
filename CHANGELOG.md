@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.1.0 (1-Apr-2025)
+
+* Allow to pass `filenameInferer` to the `uploadTranslations()` function:
+
+```js
+const { processes, errors } = await lokaliseUpload.uploadTranslations({
+  collectFileParams: {
+    inputDirs: ["./locales"],
+    extensions: [".json", ".weird_json"],
+  },
+  uploadFileParams: { replace_modified: true },
+  processUploadFileParams: {
+    filenameInferer: async (filePath) =>
+      path.extname(filePath) === ".weird_json" ? "en.json" : "",
+  },
+});
+```
+
+This function accepts a path to the uploaded file and should return a string to be used as a `filename` on Lokalise. When this function is not provided, returns an empty string, or throws an error, the relative file path is used as the filename.
+
+* Do not expose upload params that are overridden by the package
+
 ## 2.0.0 (20-Mar-2025)
 
 * Added new `bundleDownloadTimeout` parameter for the download client. It sets the maximum time (in milliseconds) to wait for the translation bundle download to complete before aborting. The default value is `undefined` (no timeout).

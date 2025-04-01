@@ -94,6 +94,8 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 				},
 				uploadFileParams: { replace_modified: true },
 				processUploadFileParams: {
+					filenameInferer: async (filePath) =>
+						path.extname(filePath) === ".weird_json" ? "en.json" : "",
 					languageInferer: async (filePath) =>
 						path.extname(filePath) === ".weird_json"
 							? Object.keys(

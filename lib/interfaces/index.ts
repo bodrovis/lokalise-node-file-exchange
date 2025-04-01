@@ -7,3 +7,4 @@ export type { ProcessUploadFileParams } from "./ProcessUploadFileParams.js";
 export type { RetryParams } from "./RetryParams.js";
 export type { UploadTranslationParams } from "./UploadTranslationParams.js";
 export type { ProcessDownloadFileParams } from "./ProcessDownloadFileParams.js";
+export type { PartialUploadFileParams } from "./PartialUploadFileParams.js";
