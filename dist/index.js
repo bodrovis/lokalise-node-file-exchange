@@ -615,7 +615,6 @@ var LokaliseUpload = class extends LokaliseFileExchange {
 export {
   LokaliseDownload,
   LokaliseError,
-  LokaliseFileExchange,
   LokaliseUpload
 };
 //# sourceMappingURL=index.js.map

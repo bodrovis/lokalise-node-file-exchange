@@ -88,7 +88,7 @@ describe("LokaliseUpload: processFile()", () => {
 				"/project",
 				undefined,
 				(filePath) => {
-					return filePath.split("/").at(-1) as string;
+					return path.basename(filePath);
 				},
 			);
 			expect(result).toEqual({
