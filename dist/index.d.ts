@@ -242,7 +242,7 @@ interface LokaliseError$1 {
     /**
      * Additional details about the error (optional).
      */
-    details?: any;
+    details?: Record<string, any>;
 }
 
 /**
