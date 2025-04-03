@@ -86,10 +86,10 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    */
   constructor(clientConfig, exchangeConfig) {
     if (!clientConfig.apiKey || typeof clientConfig.apiKey !== "string") {
-      throw new LokaliseError("Invalid or missing API token.", 401);
+      throw new LokaliseError("Invalid or missing API token.");
     }
     if (!exchangeConfig.projectId || typeof exchangeConfig.projectId !== "string") {
-      throw new LokaliseError("Invalid or missing Project ID.", 400);
+      throw new LokaliseError("Invalid or missing Project ID.");
     }
     const { useOAuth2 = false } = exchangeConfig;
     if (useOAuth2) {
@@ -104,15 +104,11 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     };
     if (this.retryParams.maxRetries < 0) {
       throw new LokaliseError(
-        "maxRetries must be greater than or equal to zero.",
-        400
+        "maxRetries must be greater than or equal to zero."
       );
     }
     if (this.retryParams.initialSleepTime <= 0) {
-      throw new LokaliseError(
-        "initialSleepTime must be a positive value.",
-        400
-      );
+      throw new LokaliseError("initialSleepTime must be a positive value.");
     }
   }
   /**

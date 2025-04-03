@@ -242,7 +242,7 @@ interface LokaliseError$1 {
     /**
      * Additional details about the error (optional).
      */
-    details?: Record<string, any>;
+    details?: Record<string, string | number>;
 }
 
 /**
@@ -256,7 +256,7 @@ declare class LokaliseError extends Error implements LokaliseError$1 {
     /**
      * Additional details about the error.
      */
-    details?: Record<string, any>;
+    details?: Record<string, string | number>;
     /**
      * Creates a new instance of LokaliseError.
      *
@@ -264,7 +264,7 @@ declare class LokaliseError extends Error implements LokaliseError$1 {
      * @param code - The error code (optional).
      * @param details - Optional additional details about the error.
      */
-    constructor(message: string, code?: number, details?: Record<string, any>);
+    constructor(message: string, code?: number, details?: Record<string, string | number>);
     /**
      * Returns a string representation of the error, including code and details.
      *
