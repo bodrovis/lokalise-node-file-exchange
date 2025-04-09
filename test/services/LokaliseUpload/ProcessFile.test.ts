@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import mock from "mock-fs";
+import type { ProcessUploadFileParams } from "../../../lib/interfaces/ProcessUploadFileParams.js";
 import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
 import { afterEach, beforeEach, describe, expect, it } from "../../setup.js";
 
@@ -83,13 +84,15 @@ describe("LokaliseUpload: processFile()", () => {
 
 	describe("Filename Inferer", () => {
 		it("should allow to set filename inferer", async () => {
+			const processParams: ProcessUploadFileParams = {
+				filenameInferer: (filePath) => {
+					return path.basename(filePath);
+				},
+			};
 			const result = await lokaliseUpload.processFile(
 				"/project/locales/nested/es.json",
 				"/project",
-				undefined,
-				(filePath) => {
-					return path.basename(filePath);
-				},
+				processParams,
 			);
 			expect(result).toEqual({
 				data: Buffer.from('{"clave": "valor"}').toString("base64"),
@@ -99,13 +102,15 @@ describe("LokaliseUpload: processFile()", () => {
 		});
 
 		it("should use default filename if the inferer throws", async () => {
+			const processParams: ProcessUploadFileParams = {
+				filenameInferer: (_filePath) => {
+					throw Error();
+				},
+			};
 			const result = await lokaliseUpload.processFile(
 				"/project/locales/nested/es.json",
 				"/project",
-				undefined,
-				(_filePath) => {
-					throw Error();
-				},
+				processParams,
 			);
 			expect(result).toEqual({
 				data: Buffer.from('{"clave": "valor"}').toString("base64"),
@@ -115,13 +120,15 @@ describe("LokaliseUpload: processFile()", () => {
 		});
 
 		it("should use default filename if the inferer return an empty string", async () => {
+			const processParams: ProcessUploadFileParams = {
+				filenameInferer: (_filePath) => {
+					return " ";
+				},
+			};
 			const result = await lokaliseUpload.processFile(
 				"/project/locales/nested/es.json",
 				"/project",
-				undefined,
-				(_filePath) => {
-					return " ";
-				},
+				processParams,
 			);
 			expect(result).toEqual({
 				data: Buffer.from('{"clave": "valor"}').toString("base64"),
@@ -133,14 +140,18 @@ describe("LokaliseUpload: processFile()", () => {
 
 	describe("Language Inferer", () => {
 		it("should allow to set language inferer", async () => {
-			const result = await lokaliseUpload.processFile(
-				"/project/locales/weird.fake_json",
-				"/project",
-				async (filePath) => {
+			const processParams: ProcessUploadFileParams = {
+				languageInferer: async (filePath) => {
 					const fileData = await fs.promises.readFile(filePath);
 					const jsonContent = JSON.parse(fileData.toString());
 					return Object.keys(jsonContent)[0];
 				},
+			};
+
+			const result = await lokaliseUpload.processFile(
+				"/project/locales/weird.fake_json",
+				"/project",
+				processParams,
 			);
 			expect(result).toEqual({
 				data: Buffer.from('{"en_GB": {"key": "value"}}').toString("base64"),
@@ -150,12 +161,15 @@ describe("LokaliseUpload: processFile()", () => {
 		});
 
 		it("should use basename as the locale if the inferer throws", async () => {
+			const processParams: ProcessUploadFileParams = {
+				languageInferer: (_filePath) => {
+					throw Error();
+				},
+			};
 			const result = await lokaliseUpload.processFile(
 				"/project/locales/en.json",
 				"/project",
-				(_filePath) => {
-					throw Error();
-				},
+				processParams,
 			);
 			expect(result).toEqual({
 				data: Buffer.from('{"key": "value"}').toString("base64"),
@@ -165,12 +179,16 @@ describe("LokaliseUpload: processFile()", () => {
 		});
 
 		it("should use basename as the locale if the inferer returns an empty string", async () => {
+			const processParams: ProcessUploadFileParams = {
+				languageInferer: (_filePath) => {
+					return "    ";
+				},
+			};
+
 			const result = await lokaliseUpload.processFile(
 				"/project/locales/en.json",
 				"/project",
-				(_filePath) => {
-					return "    ";
-				},
+				processParams,
 			);
 			expect(result).toEqual({
 				data: Buffer.from('{"key": "value"}').toString("base64"),

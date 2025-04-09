@@ -1,6 +1,6 @@
 import type { DownloadFileParams } from "@lokalise/node-api";
-import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
+import type { TestableLokaliseFileExchange } from "../../fixtures/fake_interfaces/TestableLokaliseFileExchange.js";
 import {
 	MockAgent,
 	afterAll,
@@ -103,7 +103,7 @@ describe("LokaliseDownload: getTranslationsBundleAsync()", () => {
 				},
 			);
 			const sleepSpy = vi
-				.spyOn(downloader as any, "sleep")
+				.spyOn(downloader as unknown as TestableLokaliseFileExchange, "sleep")
 				.mockResolvedValue(undefined);
 
 			let callCount = 0;
@@ -153,7 +153,7 @@ describe("LokaliseDownload: getTranslationsBundleAsync()", () => {
 				},
 			);
 			const sleepSpy = vi
-				.spyOn(downloader as any, "sleep")
+				.spyOn(downloader as unknown as TestableLokaliseFileExchange, "sleep")
 				.mockResolvedValue(undefined);
 
 			let callCount = 0;
@@ -247,7 +247,7 @@ describe("LokaliseDownload: getTranslationsBundleAsync()", () => {
 				},
 			);
 			const sleepSpy = vi
-				.spyOn(downloader as any, "sleep")
+				.spyOn(downloader as unknown as TestableLokaliseFileExchange, "sleep")
 				.mockResolvedValue(undefined);
 
 			let callCount = 0;
@@ -291,7 +291,10 @@ describe("LokaliseDownload: getTranslationsBundleAsync()", () => {
 				{ apiKey },
 				{ projectId },
 			);
-			(invalidDownloader as any).projectId = null;
+			Object.defineProperty(invalidDownloader, "projectId", {
+				get: () => null,
+				configurable: true,
+			});
 
 			await expect(
 				invalidDownloader.getTranslationsBundleAsync(mockParams),

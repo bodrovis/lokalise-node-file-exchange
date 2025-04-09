@@ -1,5 +1,6 @@
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
+import type { TestableLokaliseFileExchange } from "../../fixtures/fake_interfaces/TestableLokaliseFileExchange.js";
 import {
 	MockAgent,
 	afterAll,
@@ -99,8 +100,9 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 					retryParams: { maxRetries: retries, initialSleepTime: sleepTime },
 				},
 			);
+
 			const sleepSpy = vi
-				.spyOn(uploader as any, "sleep")
+				.spyOn(uploader as unknown as TestableLokaliseFileExchange, "sleep")
 				.mockResolvedValue(undefined);
 
 			let callCount = 0;
@@ -147,7 +149,7 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 			);
 
 			const sleepSpy = vi
-				.spyOn(uploader as any, "sleep")
+				.spyOn(uploader as unknown as TestableLokaliseFileExchange, "sleep")
 				.mockResolvedValue(undefined);
 
 			mockPool

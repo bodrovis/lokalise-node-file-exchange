@@ -18,6 +18,12 @@ import {
 } from "../../setup.js";
 import type { Interceptable } from "../../setup.js";
 
+type MockWriteStream = fs.WriteStream & {
+	path: string;
+	bytesWritten: number;
+	pending: boolean;
+};
+
 describe("LokaliseDownload: downloadZip()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
 	const apiKey = process.env.API_KEY as string;
@@ -51,19 +57,24 @@ describe("LokaliseDownload: downloadZip()", () => {
 			const mockTempPath = "/mock/temp/lokalise-translations.zip";
 
 			vi.spyOn(path, "join").mockReturnValue(mockTempPath);
-			vi.spyOn(fs, "createWriteStream").mockImplementation((filePath) => {
-				const mockStream = new (require("node:stream").Writable)({
-					write(_chunk, _encoding, callback) {
-						callback(); // Simulate writing to the stream
-					},
-				});
+			vi.spyOn(fs, "createWriteStream").mockImplementation(
+				(filePath): fs.WriteStream => {
+					const { Writable } = require("node:stream");
+					const stream = new Writable({
+						write(_chunk, _encoding, callback) {
+							callback(); // Simulate writing to the stream
+						},
+					});
 
-				(mockStream as any).path = filePath;
-				(mockStream as any).bytesWritten = 0;
-				(mockStream as any).pending = false;
+					const mockStream: MockWriteStream = Object.assign(stream, {
+						path: filePath,
+						bytesWritten: 0,
+						pending: false,
+					});
 
-				return mockStream as fs.WriteStream;
-			});
+					return mockStream;
+				},
+			);
 
 			mockPool
 				.intercept({
@@ -160,7 +171,7 @@ describe("LokaliseDownload: downloadZip()", () => {
 						}
 
 						_write(
-							_chunk: any,
+							_chunk: string,
 							_encoding: string,
 							callback: (error?: Error | null) => void,
 						) {

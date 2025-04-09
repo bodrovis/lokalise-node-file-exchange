@@ -47,8 +47,11 @@ var LokaliseError = class extends Error {
 };
 
 // lib/services/LokaliseFileExchange.ts
-import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
-import { ApiError as LokaliseApiError } from "@lokalise/node-api";
+import {
+  LokaliseApi,
+  ApiError as LokaliseApiError,
+  LokaliseApiOAuth
+} from "@lokalise/node-api";
 var LokaliseFileExchange = class _LokaliseFileExchange {
   /**
    * The Lokalise API client instance.
@@ -69,7 +72,6 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     maxRetries: 3,
     initialSleepTime: 1e3
   };
-  // Constants for process statuses
   PENDING_STATUSES = [
     "queued",
     "pre_processing",
@@ -77,6 +79,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     "post_processing"
   ];
   FINISHED_STATUSES = ["finished", "cancelled", "failed"];
+  RETRYABLE_CODES = [408, 429];
   /**
    * Creates a new instance of LokaliseFileExchange.
    *
@@ -84,23 +87,22 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    * @param exchangeConfig - The configuration object for file exchange operations.
    * @throws {LokaliseError} If the provided configuration is invalid.
    */
-  constructor(clientConfig, exchangeConfig) {
+  constructor(clientConfig, { projectId, useOAuth2 = false, retryParams }) {
     if (!clientConfig.apiKey || typeof clientConfig.apiKey !== "string") {
       throw new LokaliseError("Invalid or missing API token.");
     }
-    if (!exchangeConfig.projectId || typeof exchangeConfig.projectId !== "string") {
-      throw new LokaliseError("Invalid or missing Project ID.");
-    }
-    const { useOAuth2 = false } = exchangeConfig;
     if (useOAuth2) {
       this.apiClient = new LokaliseApiOAuth(clientConfig);
     } else {
       this.apiClient = new LokaliseApi(clientConfig);
     }
-    this.projectId = exchangeConfig.projectId;
+    if (!projectId || typeof projectId !== "string") {
+      throw new LokaliseError("Invalid or missing Project ID.");
+    }
+    this.projectId = projectId;
     this.retryParams = {
       ..._LokaliseFileExchange.defaultRetryParams,
-      ...exchangeConfig.retryParams
+      ...retryParams
     };
     if (this.retryParams.maxRetries < 0) {
       throw new LokaliseError(
@@ -129,7 +131,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
       try {
         return await operation();
       } catch (error) {
-        if (error instanceof LokaliseApiError && (error.code === 429 || error.code === 408)) {
+        if (error instanceof LokaliseApiError && this.RETRYABLE_CODES.includes(error.code)) {
           if (attempt === maxRetries + 1) {
             throw new LokaliseError(
               `Maximum retries reached: ${error.message ?? "Unknown error"}`,
@@ -205,33 +207,32 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
 };
 
 // lib/services/LokaliseDownload.ts
-var LokaliseDownload = class extends LokaliseFileExchange {
+var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
   streamPipeline = promisify(pipeline);
+  static defaultProcessParams = {
+    asyncDownload: false,
+    pollInitialWaitTime: 1e3,
+    pollMaximumWaitTime: 12e4,
+    bundleDownloadTimeout: void 0
+  };
   /**
-   * Downloads translations from Lokalise, saving them to a ZIP file and extracting them.
+   * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
    *
-   * @param downloadTranslationParams - Configuration for download, extraction, and retries.
-   * @throws {LokaliseError} If any step fails (e.g., download or extraction fails).
+   * @param downloadTranslationParams - Full configuration for the download process, extraction destination, and optional polling or timeout settings.
+   * @throws {LokaliseError} If the download, polling, or extraction fails.
    */
-  async downloadTranslations(downloadTranslationParams) {
-    const {
-      downloadFileParams,
-      extractParams = {},
-      processDownloadFileParams
-    } = downloadTranslationParams;
-    const defaultProcessParams = {
-      asyncDownload: false,
-      pollInitialWaitTime: 1e3,
-      pollMaximumWaitTime: 12e4,
-      bundleDownloadTimeout: void 0
-    };
+  async downloadTranslations({
+    downloadFileParams,
+    extractParams = {},
+    processDownloadFileParams
+  }) {
     const {
       asyncDownload,
       pollInitialWaitTime,
       pollMaximumWaitTime,
       bundleDownloadTimeout
     } = {
-      ...defaultProcessParams,
+      ..._LokaliseDownload.defaultProcessParams,
       ...processDownloadFileParams
     };
     let translationsBundleURL;
@@ -421,37 +422,33 @@ var LokaliseDownload = class extends LokaliseFileExchange {
 // lib/services/LokaliseUpload.ts
 import fs2 from "node:fs";
 import path2 from "node:path";
-var LokaliseUpload = class extends LokaliseFileExchange {
+var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
   maxConcurrentProcesses = 6;
-  /**
-   * Collects files and uploads them to Lokalise, returning both processes and errors.
-   *
-   * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
-   * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
-   */
+  static defaultPollingParams = {
+    pollStatuses: false,
+    pollInitialWaitTime: 1e3,
+    pollMaximumWaitTime: 12e4
+  };
   /**
    * Collects files, uploads them to Lokalise, and optionally polls for process completion, returning both processes and errors.
    *
    * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
    * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
    */
-  async uploadTranslations(uploadTranslationParams = {}) {
-    const { uploadFileParams, collectFileParams, processUploadFileParams } = uploadTranslationParams;
-    const defaultPollingParams = {
-      pollStatuses: false,
-      pollInitialWaitTime: 1e3,
-      pollMaximumWaitTime: 12e4
-    };
+  async uploadTranslations({
+    uploadFileParams,
+    collectFileParams,
+    processUploadFileParams
+  } = {}) {
     const { pollStatuses, pollInitialWaitTime, pollMaximumWaitTime } = {
-      ...defaultPollingParams,
+      ..._LokaliseUpload.defaultPollingParams,
       ...processUploadFileParams
     };
     const collectedFiles = await this.collectFiles(collectFileParams);
     const { processes, errors } = await this.parallelUpload(
       collectedFiles,
       uploadFileParams,
-      processUploadFileParams?.languageInferer,
-      processUploadFileParams?.filenameInferer
+      processUploadFileParams
     );
     let completedProcesses = processes;
     if (pollStatuses) {
@@ -472,21 +469,27 @@ var LokaliseUpload = class extends LokaliseFileExchange {
   async collectFiles({
     inputDirs = ["./locales"],
     extensions = [".*"],
-    excludePatterns = ["node_modules", "dist"],
+    excludePatterns = [],
     recursive = true,
     fileNamePattern = ".*"
   } = {}) {
     const collectedFiles = [];
+    const queue = [...inputDirs.map((dir) => path2.resolve(dir))];
     const normalizedExtensions = extensions.map(
       (ext) => ext.startsWith(".") ? ext : `.${ext}`
     );
-    let regexPattern;
+    let fileNameRegex;
     try {
-      regexPattern = new RegExp(fileNamePattern);
+      fileNameRegex = new RegExp(fileNamePattern);
     } catch {
       throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
     }
-    const queue = [...inputDirs.map((dir) => path2.resolve(dir))];
+    let excludeRegexes = [];
+    try {
+      excludeRegexes = excludePatterns.map((pattern) => new RegExp(pattern));
+    } catch (err) {
+      throw new Error(`Invalid excludePatterns: ${err}`);
+    }
     while (queue.length > 0) {
       const dir = queue.shift();
       if (!dir) {
@@ -501,7 +504,7 @@ var LokaliseUpload = class extends LokaliseFileExchange {
       }
       for (const entry of entries) {
         const fullPath = path2.resolve(dir, entry.name);
-        if (excludePatterns.some((pattern) => fullPath.includes(pattern))) {
+        if (excludeRegexes.some((regex) => regex.test(fullPath))) {
           continue;
         }
         if (entry.isDirectory() && recursive) {
@@ -509,8 +512,8 @@ var LokaliseUpload = class extends LokaliseFileExchange {
         } else if (entry.isFile()) {
           const fileExt = path2.extname(entry.name);
           const matchesExtension = normalizedExtensions.includes(".*") || normalizedExtensions.includes(fileExt);
-          const matchesPattern = regexPattern.test(entry.name);
-          if (matchesExtension && matchesPattern) {
+          const matchesFilenamePattern = fileNameRegex.test(entry.name);
+          if (matchesExtension && matchesFilenamePattern) {
             collectedFiles.push(fullPath);
           }
         }
@@ -534,25 +537,26 @@ var LokaliseUpload = class extends LokaliseFileExchange {
    *
    * @param {string} file - The absolute path to the file.
    * @param {string} projectRoot - The root directory of the project.
-   * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
+   * @param {ProcessUploadFileParams} [processParams] - Optional processing settings including inferers.
    * @returns {Promise<ProcessedFile>} A promise resolving with the processed file details, including base64 content, relative path, and language code.
    */
-  async processFile(file, projectRoot, languageInferer, filenameInferer) {
+  async processFile(file, projectRoot, processParams) {
     let relativePath;
     try {
-      relativePath = filenameInferer ? await filenameInferer(file) : "";
+      relativePath = processParams?.filenameInferer ? await processParams.filenameInferer(file) : "";
       if (!relativePath.trim()) {
         throw new Error("Invalid filename: empty or only whitespace");
       }
     } catch {
+      const toPosixPath = (p) => p.split(path2.sep).join(path2.posix.sep);
       relativePath = path2.posix.relative(
-        projectRoot.split(path2.sep).join(path2.posix.sep),
-        file.split(path2.sep).join(path2.posix.sep)
+        toPosixPath(projectRoot),
+        toPosixPath(file)
       );
     }
     let languageCode;
     try {
-      languageCode = languageInferer ? await languageInferer(file) : "";
+      languageCode = processParams?.languageInferer ? await processParams.languageInferer(file) : "";
       if (!languageCode.trim()) {
         throw new Error("Invalid language code: empty or only whitespace");
       }
@@ -560,9 +564,8 @@ var LokaliseUpload = class extends LokaliseFileExchange {
       languageCode = path2.parse(path2.basename(relativePath)).name;
     }
     const fileContent = await fs2.promises.readFile(file);
-    const base64Data = fileContent.toString("base64");
     return {
-      data: base64Data,
+      data: fileContent.toString("base64"),
       filename: relativePath,
       lang_iso: languageCode
     };
@@ -572,10 +575,10 @@ var LokaliseUpload = class extends LokaliseFileExchange {
    *
    * @param {string[]} files - List of file paths to upload.
    * @param {Partial<UploadFileParams>} baseUploadFileParams - Base parameters for uploads.
-   * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
+   * @param {ProcessUploadFileParams} [processParams] - Optional processing settings including inferers.
    * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
    */
-  async parallelUpload(files, baseUploadFileParams = {}, languageInferer, filenameInferer) {
+  async parallelUpload(files, baseUploadFileParams = {}, processParams) {
     const projectRoot = process.cwd();
     const queuedProcesses = [];
     const errors = [];
@@ -590,8 +593,7 @@ var LokaliseUpload = class extends LokaliseFileExchange {
             const processedFileParams = await this.processFile(
               file,
               projectRoot,
-              languageInferer,
-              filenameInferer
+              processParams
             );
             const queuedProcess = await this.uploadSingleFile({
               ...baseUploadFileParams,

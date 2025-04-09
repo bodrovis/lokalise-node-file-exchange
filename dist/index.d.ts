@@ -1,11 +1,11 @@
-import { DownloadFileParams, UploadFileParams, LokaliseApi, ClientParams, QueuedProcess, DownloadBundle } from '@lokalise/node-api';
+import { DownloadFileParams, UploadFileParams, QueuedProcess, LokaliseApi, ClientParams, DownloadBundle } from '@lokalise/node-api';
 
 interface CollectFileParams {
     inputDirs?: string[];
     extensions?: string[];
-    excludePatterns?: string[];
+    excludePatterns?: string[] | RegExp[];
     recursive?: boolean;
-    fileNamePattern?: string;
+    fileNamePattern?: string | RegExp;
 }
 
 interface ExtractParams {
@@ -36,9 +36,10 @@ interface LokaliseExchangeConfig {
     retryParams?: Partial<RetryParams>;
 }
 
+type Inferer = (filePath: string) => Promise<string> | string;
 interface ProcessUploadFileParams {
-    languageInferer?: (filePath: string) => Promise<string> | string;
-    filenameInferer?: (filePath: string) => Promise<string> | string;
+    languageInferer?: Inferer;
+    filenameInferer?: Inferer;
     pollStatuses?: boolean;
     pollInitialWaitTime?: number;
     pollMaximumWaitTime?: number;
@@ -57,6 +58,17 @@ interface UploadTranslationParams {
     uploadFileParams?: PartialUploadFileParams;
     collectFileParams?: CollectFileParams;
     processUploadFileParams?: ProcessUploadFileParams;
+}
+
+interface ProcessedFile {
+    data: string;
+    filename: string;
+    lang_iso: string;
+}
+
+interface QueuedUploadProcessesWithErrors {
+    processes: QueuedProcess[];
+    errors: FileUploadError[];
 }
 
 /**
@@ -81,6 +93,7 @@ declare class LokaliseFileExchange {
     private static readonly defaultRetryParams;
     private readonly PENDING_STATUSES;
     private readonly FINISHED_STATUSES;
+    private readonly RETRYABLE_CODES;
     /**
      * Creates a new instance of LokaliseFileExchange.
      *
@@ -88,7 +101,7 @@ declare class LokaliseFileExchange {
      * @param exchangeConfig - The configuration object for file exchange operations.
      * @throws {LokaliseError} If the provided configuration is invalid.
      */
-    constructor(clientConfig: ClientParams, exchangeConfig: LokaliseExchangeConfig);
+    constructor(clientConfig: ClientParams, { projectId, useOAuth2, retryParams }: LokaliseExchangeConfig);
     /**
      * Executes an asynchronous operation with exponential backoff retry logic.
      *
@@ -125,13 +138,14 @@ declare class LokaliseFileExchange {
  */
 declare class LokaliseDownload extends LokaliseFileExchange {
     private readonly streamPipeline;
+    private static readonly defaultProcessParams;
     /**
-     * Downloads translations from Lokalise, saving them to a ZIP file and extracting them.
+     * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
      *
-     * @param downloadTranslationParams - Configuration for download, extraction, and retries.
-     * @throws {LokaliseError} If any step fails (e.g., download or extraction fails).
+     * @param downloadTranslationParams - Full configuration for the download process, extraction destination, and optional polling or timeout settings.
+     * @throws {LokaliseError} If the download, polling, or extraction fails.
      */
-    downloadTranslations(downloadTranslationParams: DownloadTranslationParams): Promise<void>;
+    downloadTranslations({ downloadFileParams, extractParams, processDownloadFileParams, }: DownloadTranslationParams): Promise<void>;
     /**
      * Unpacks a ZIP file into the specified directory.
      *
@@ -166,33 +180,19 @@ declare class LokaliseDownload extends LokaliseFileExchange {
     protected getTranslationsBundleAsync(downloadFileParams: DownloadFileParams): Promise<QueuedProcess>;
 }
 
-interface ProcessedFile {
-    data: string;
-    filename: string;
-    lang_iso: string;
-}
-
 /**
  * Handles uploading translation files to Lokalise.
  */
 declare class LokaliseUpload extends LokaliseFileExchange {
     private readonly maxConcurrentProcesses;
-    /**
-     * Collects files and uploads them to Lokalise, returning both processes and errors.
-     *
-     * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
-     * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
-     */
+    private static readonly defaultPollingParams;
     /**
      * Collects files, uploads them to Lokalise, and optionally polls for process completion, returning both processes and errors.
      *
      * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
      * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
      */
-    uploadTranslations(uploadTranslationParams?: UploadTranslationParams): Promise<{
-        processes: QueuedProcess[];
-        errors: FileUploadError[];
-    }>;
+    uploadTranslations({ uploadFileParams, collectFileParams, processUploadFileParams, }?: UploadTranslationParams): Promise<QueuedUploadProcessesWithErrors>;
     /**
      * Collects files from the filesystem based on the given parameters.
      *
@@ -212,16 +212,16 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      *
      * @param {string} file - The absolute path to the file.
      * @param {string} projectRoot - The root directory of the project.
-     * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
+     * @param {ProcessUploadFileParams} [processParams] - Optional processing settings including inferers.
      * @returns {Promise<ProcessedFile>} A promise resolving with the processed file details, including base64 content, relative path, and language code.
      */
-    protected processFile(file: string, projectRoot: string, languageInferer?: (filePath: string) => Promise<string> | string, filenameInferer?: (filePath: string) => Promise<string> | string): Promise<ProcessedFile>;
+    protected processFile(file: string, projectRoot: string, processParams?: ProcessUploadFileParams): Promise<ProcessedFile>;
     /**
      * Uploads files in parallel with a limit on the number of concurrent uploads.
      *
      * @param {string[]} files - List of file paths to upload.
      * @param {Partial<UploadFileParams>} baseUploadFileParams - Base parameters for uploads.
-     * @param {(filePath: string) => Promise<string> | string} [languageInferer] - Optional function to infer the language code from the file path. Can be asynchronous.
+     * @param {ProcessUploadFileParams} [processParams] - Optional processing settings including inferers.
      * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
      */
     private parallelUpload;
@@ -273,4 +273,4 @@ declare class LokaliseError extends Error implements LokaliseError$1 {
     toString(): string;
 }
 
-export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, type FileUploadError, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseUpload, type PartialUploadFileParams, type ProcessDownloadFileParams, type ProcessUploadFileParams, type RetryParams, type UploadTranslationParams };
+export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, type FileUploadError, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseUpload, type PartialUploadFileParams, type ProcessDownloadFileParams, type ProcessUploadFileParams, type ProcessedFile, type QueuedUploadProcessesWithErrors, type RetryParams, type UploadTranslationParams };

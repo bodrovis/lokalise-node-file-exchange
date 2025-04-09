@@ -1,5 +1,6 @@
 import type { QueuedProcess, UploadFileParams } from "@lokalise/node-api";
 import type { CollectFileParams } from "../../../lib/interfaces/CollectFileParams.js";
+import type { ProcessUploadFileParams } from "../../../lib/interfaces/ProcessUploadFileParams.js";
 import type { ProcessedFile } from "../../../lib/interfaces/ProcessedFile.js";
 import { LokaliseUpload } from "../../../lib/services/LokaliseUpload.js";
 
@@ -14,21 +15,15 @@ export class FakeLokaliseUpload extends LokaliseUpload {
 	public async processFile(
 		file: string,
 		projectRoot: string,
-		languageInferer?: (filePath: string) => Promise<string> | string,
-		filenameInferer?: (filePath: string) => Promise<string> | string,
+		processParams?: ProcessUploadFileParams,
 	): Promise<ProcessedFile> {
-		return await super.processFile(
-			file,
-			projectRoot,
-			languageInferer,
-			filenameInferer,
-		);
+		return await super.processFile(file, projectRoot, processParams);
 	}
 
 	public async collectFiles({
 		inputDirs = ["./locales"],
 		extensions = [".*"],
-		excludePatterns = ["node_modules", "dist"],
+		excludePatterns = [],
 		recursive = true,
 		fileNamePattern = ".*",
 	}: CollectFileParams = {}): Promise<string[]> {

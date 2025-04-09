@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+* **Potentially breaking change**: `excludePatterns` for `LokaliseUpload` now defaults to `[]` (empty array).
+* **Potentially breaking change**: `excludePatterns` now accepts `string[]` or RegExp[]`. Each item must be a valid regular expression string or a `RegExp` object. Patterns are tested against the full absolute path of each file or directory. For example:
+
+```js
+excludePatterns: [/locales\\subdir/, /locales\/subdir/, /en\.json$/i],
+
+// or
+
+excludePatterns: ["nested", "backup"],
+```
+
+* `fileNamePattern` for `LokaliseUpload` now accepts either regexp-like string or regexp
+* Various code tweaks
+
 ## 2.1.0 (1-Apr-2025)
 
 * Allow to pass `filenameInferer` to the `uploadTranslations()` function:

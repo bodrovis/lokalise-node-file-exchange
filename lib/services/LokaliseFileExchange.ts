@@ -1,10 +1,14 @@
-import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
-import type { ClientParams } from "@lokalise/node-api";
-import { ApiError as LokaliseApiError } from "@lokalise/node-api";
-import type { QueuedProcess } from "@lokalise/node-api";
+import {
+	LokaliseApi,
+	ApiError as LokaliseApiError,
+	LokaliseApiOAuth,
+} from "@lokalise/node-api";
+import type { ClientParams, QueuedProcess } from "@lokalise/node-api";
 import { LokaliseError } from "../errors/LokaliseError.js";
-import type { LokaliseExchangeConfig } from "../interfaces/LokaliseExchangeConfig.js";
-import type { RetryParams } from "../interfaces/index.js";
+import type {
+	LokaliseExchangeConfig,
+	RetryParams,
+} from "../interfaces/index.js";
 
 /**
  * A utility class for exchanging files with the Lokalise API.
@@ -33,7 +37,6 @@ export class LokaliseFileExchange {
 		initialSleepTime: 1000,
 	};
 
-	// Constants for process statuses
 	private readonly PENDING_STATUSES = [
 		"queued",
 		"pre_processing",
@@ -41,6 +44,8 @@ export class LokaliseFileExchange {
 		"post_processing",
 	];
 	private readonly FINISHED_STATUSES = ["finished", "cancelled", "failed"];
+
+	private readonly RETRYABLE_CODES = [408, 429];
 
 	/**
 	 * Creates a new instance of LokaliseFileExchange.
@@ -51,31 +56,25 @@ export class LokaliseFileExchange {
 	 */
 	constructor(
 		clientConfig: ClientParams,
-		exchangeConfig: LokaliseExchangeConfig,
+		{ projectId, useOAuth2 = false, retryParams }: LokaliseExchangeConfig,
 	) {
 		if (!clientConfig.apiKey || typeof clientConfig.apiKey !== "string") {
 			throw new LokaliseError("Invalid or missing API token.");
 		}
-
-		if (
-			!exchangeConfig.projectId ||
-			typeof exchangeConfig.projectId !== "string"
-		) {
-			throw new LokaliseError("Invalid or missing Project ID.");
-		}
-
-		const { useOAuth2 = false } = exchangeConfig;
-
 		if (useOAuth2) {
 			this.apiClient = new LokaliseApiOAuth(clientConfig);
 		} else {
 			this.apiClient = new LokaliseApi(clientConfig);
 		}
 
-		this.projectId = exchangeConfig.projectId;
+		if (!projectId || typeof projectId !== "string") {
+			throw new LokaliseError("Invalid or missing Project ID.");
+		}
+		this.projectId = projectId;
+
 		this.retryParams = {
 			...LokaliseFileExchange.defaultRetryParams,
-			...exchangeConfig.retryParams,
+			...retryParams,
 		};
 
 		if (this.retryParams.maxRetries < 0) {
@@ -111,7 +110,7 @@ export class LokaliseFileExchange {
 			} catch (error: unknown) {
 				if (
 					error instanceof LokaliseApiError &&
-					(error.code === 429 || error.code === 408)
+					this.RETRYABLE_CODES.includes(error.code)
 				) {
 					if (attempt === maxRetries + 1) {
 						throw new LokaliseError(

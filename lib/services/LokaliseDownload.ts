@@ -18,36 +18,31 @@ import { LokaliseFileExchange } from "./LokaliseFileExchange.js";
  */
 export class LokaliseDownload extends LokaliseFileExchange {
 	private readonly streamPipeline = promisify(pipeline);
+	private static readonly defaultProcessParams = {
+		asyncDownload: false,
+		pollInitialWaitTime: 1000,
+		pollMaximumWaitTime: 120_000,
+		bundleDownloadTimeout: undefined,
+	};
 
 	/**
-	 * Downloads translations from Lokalise, saving them to a ZIP file and extracting them.
+	 * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
 	 *
-	 * @param downloadTranslationParams - Configuration for download, extraction, and retries.
-	 * @throws {LokaliseError} If any step fails (e.g., download or extraction fails).
+	 * @param downloadTranslationParams - Full configuration for the download process, extraction destination, and optional polling or timeout settings.
+	 * @throws {LokaliseError} If the download, polling, or extraction fails.
 	 */
-	async downloadTranslations(
-		downloadTranslationParams: DownloadTranslationParams,
-	): Promise<void> {
-		const {
-			downloadFileParams,
-			extractParams = {},
-			processDownloadFileParams,
-		} = downloadTranslationParams;
-
-		const defaultProcessParams = {
-			asyncDownload: false,
-			pollInitialWaitTime: 1000,
-			pollMaximumWaitTime: 120_000,
-			bundleDownloadTimeout: undefined,
-		};
-
+	async downloadTranslations({
+		downloadFileParams,
+		extractParams = {},
+		processDownloadFileParams,
+	}: DownloadTranslationParams): Promise<void> {
 		const {
 			asyncDownload,
 			pollInitialWaitTime,
 			pollMaximumWaitTime,
 			bundleDownloadTimeout,
 		} = {
-			...defaultProcessParams,
+			...LokaliseDownload.defaultProcessParams,
 			...processDownloadFileParams,
 		};
 
@@ -90,7 +85,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				path.resolve(extractParams.outputDir ?? "./"),
 			);
 		} finally {
-			await fs.promises.unlink(zipFilePath); // Cleanup ZIP file
+			await fs.promises.unlink(zipFilePath);
 		}
 	}
 

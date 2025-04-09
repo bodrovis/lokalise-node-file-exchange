@@ -21,7 +21,11 @@ export class LokaliseError extends Error implements ILokaliseError {
 	 * @param code - The error code (optional).
 	 * @param details - Optional additional details about the error.
 	 */
-	constructor(message: string, code?: number, details?: Record<string, string | number>) {
+	constructor(
+		message: string,
+		code?: number,
+		details?: Record<string, string | number>,
+	) {
 		super(message);
 		this.code = code;
 		this.details = details;

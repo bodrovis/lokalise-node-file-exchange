@@ -1,6 +1,8 @@
+type Inferer = (filePath: string) => Promise<string> | string;
+
 export interface ProcessUploadFileParams {
-	languageInferer?: (filePath: string) => Promise<string> | string;
-	filenameInferer?: (filePath: string) => Promise<string> | string;
+	languageInferer?: Inferer;
+	filenameInferer?: Inferer;
 	pollStatuses?: boolean;
 	pollInitialWaitTime?: number;
 	pollMaximumWaitTime?: number;

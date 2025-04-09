@@ -118,7 +118,7 @@ describe("LokaliseUpload: collectFiles()", () => {
 		it("should filter files by both fileNamePattern and extensions", async () => {
 			const files = await lokaliseUpload.collectFiles({
 				extensions: [".json"],
-				fileNamePattern: "^en.*",
+				fileNamePattern: /^en.*/,
 			});
 			const expectedFiles = [fullPath("./locales/en.json")];
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
@@ -141,15 +141,11 @@ describe("LokaliseUpload: collectFiles()", () => {
 		});
 
 		it("should exclude directories and apply file filters simultaneously", async () => {
-			const excludePattern = fullPath("./locales/subdir");
 			const files = await lokaliseUpload.collectFiles({
-				excludePatterns: [excludePattern],
+				excludePatterns: [/locales\\subdir/, /locales\/subdir/, /en\.json$/i],
 				extensions: [".json"],
 			});
-			const expectedFiles = [
-				fullPath("./locales/en.json"),
-				fullPath("./locales/fr.json"),
-			];
+			const expectedFiles = [fullPath("./locales/fr.json")];
 
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
@@ -160,9 +156,17 @@ describe("LokaliseUpload: collectFiles()", () => {
 		it("should throw an error for invalid fileNamePattern", async () => {
 			await expect(
 				lokaliseUpload.collectFiles({
-					fileNamePattern: "[invalid(", // Invalid regex
+					fileNamePattern: "[invalid(",
 				}),
 			).rejects.toThrow("Invalid fileNamePattern");
+		});
+
+		it("should throw an error for invalid excludePatterns", async () => {
+			await expect(
+				lokaliseUpload.collectFiles({
+					excludePatterns: ["[invalid("],
+				}),
+			).rejects.toThrow("Invalid excludePatterns: SyntaxError");
 		});
 
 		it("should handle invalid or inaccessible directories gracefully", async () => {
