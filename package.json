@@ -27,7 +27,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@lokalise/node-api": "^14.0.0",
+		"@lokalise/node-api": "14.3.0-rc.1",
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {

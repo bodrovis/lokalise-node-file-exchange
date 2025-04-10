@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { FileFormat, QueuedProcess } from "@lokalise/node-api";
+import type {
+	DownloadedFileProcessDetails,
+	FileFormat,
+	QueuedProcess,
+} from "@lokalise/node-api";
 import mockFs from "mock-fs";
 import { MockAgent, setGlobalDispatcher } from "undici";
 import { LokaliseError } from "../../../lib/index.js";
@@ -142,7 +146,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			const incompleteProcess: QueuedProcess = {
 				process_id: processId,
 				status: "running",
-				details: {},
+				details: {} as DownloadedFileProcessDetails,
 				type: "file-import",
 				message: "",
 				created_by: "20181",
@@ -188,7 +192,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			const finishedNoUrlProcess = {
 				process_id: processId,
 				status: "finished",
-				details: {}, // missing download_url
+				details: {} as DownloadedFileProcessDetails, // missing download_url
 				type: "file-import",
 				message: "",
 				created_by: "20181",
@@ -231,6 +235,8 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				status: "finished",
 				details: {
 					download_url: "https://example.com/fake.zip",
+					file_size_kb: 1,
+					total_number_of_keys: 3,
 				},
 				type: "file-import",
 				message: "",
@@ -277,6 +283,8 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				status: "finished",
 				details: {
 					download_url: "https://example.com/fake.zip",
+					file_size_kb: 1,
+					total_number_of_keys: 3,
 				},
 				type: "file-import",
 				message: "",
@@ -331,6 +339,8 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				status: "finished",
 				details: {
 					download_url: url,
+					file_size_kb: 1,
+					total_number_of_keys: 3,
 				},
 				type: "file-import",
 				message: "",

@@ -15,5 +15,5 @@ export interface LokaliseError {
 	/**
 	 * Additional details about the error (optional).
 	 */
-	details?: Record<string, string | number>;
+	details?: Record<string, string | number | boolean>;
 }

@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import type {
 	DownloadBundle,
 	DownloadFileParams,
+	DownloadedFileProcessDetails,
 	QueuedProcess,
 } from "@lokalise/node-api";
 import yauzl from "yauzl";
@@ -61,7 +62,9 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			)[0];
 
 			if (completedProcess.status === "finished") {
-				translationsBundleURL = completedProcess.details.download_url;
+				const completedProcessDetails =
+					completedProcess.details as DownloadedFileProcessDetails;
+				translationsBundleURL = completedProcessDetails.download_url;
 			} else {
 				throw new LokaliseError(
 					`Download process took too long to finalize; gave up after ${pollMaximumWaitTime}ms`,

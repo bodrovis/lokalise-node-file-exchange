@@ -12,7 +12,7 @@ export class LokaliseError extends Error implements ILokaliseError {
 	/**
 	 * Additional details about the error.
 	 */
-	details?: Record<string, string | number>;
+	details?: Record<string, string | number | boolean>;
 
 	/**
 	 * Creates a new instance of LokaliseError.
@@ -24,7 +24,7 @@ export class LokaliseError extends Error implements ILokaliseError {
 	constructor(
 		message: string,
 		code?: number,
-		details?: Record<string, string | number>,
+		details?: Record<string, string | number | boolean>,
 	) {
 		super(message);
 		this.code = code;
