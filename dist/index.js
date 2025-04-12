@@ -244,7 +244,8 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
         pollMaximumWaitTime
       ))[0];
       if (completedProcess.status === "finished") {
-        translationsBundleURL = completedProcess.details.download_url;
+        const completedProcessDetails = completedProcess.details;
+        translationsBundleURL = completedProcessDetails.download_url;
       } else {
         throw new LokaliseError(
           `Download process took too long to finalize; gave up after ${pollMaximumWaitTime}ms`,

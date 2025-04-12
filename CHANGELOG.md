@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.0.0 (12-Apr-2025)
 
 * **Potentially breaking change**: `excludePatterns` for `LokaliseUpload` now defaults to `[]` (empty array).
 * **Potentially breaking change**: `excludePatterns` now accepts `string[]` or RegExp[]`. Each item must be a valid regular expression string or a `RegExp` object. Patterns are tested against the full absolute path of each file or directory. For example:

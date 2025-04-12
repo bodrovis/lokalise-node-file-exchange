@@ -1,6 +1,6 @@
 {
 	"name": "lokalise-file-exchange",
-	"version": "2.1.0",
+	"version": "3.0.0",
 	"description": "Exchange translation files with Lokalise TMS",
 	"license": "BSD-3-Clause",
 	"repository": {
@@ -27,7 +27,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@lokalise/node-api": "14.3.0-rc.1",
+		"@lokalise/node-api": "^14.3.0",
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {
