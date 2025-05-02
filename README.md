@@ -2,9 +2,9 @@
 
 ![npm](https://img.shields.io/npm/v/lokalise-file-exchange)
 ![CI](https://github.com/bodrovis/lokalise-node-file-exchange/actions/workflows/ci.yml/badge.svg)
+[![Code Coverage](https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/test_coverage.svg)](https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange)
 [![NPM Downloads][npm-downloads-image]][npm-downloads-url]
 [![Maintainability](https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/maintainability.svg)](https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange)
-[![Code Coverage](https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/test_coverage.svg)](https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange)
 
 This package enables you to easily exchange translation files between your JavaScript/TypeScript project and [Lokalise TMS](https://lokalise.com).
 
