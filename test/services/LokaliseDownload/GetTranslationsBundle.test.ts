@@ -1,5 +1,6 @@
 import type { DownloadFileParams } from "@lokalise/node-api";
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
+import { LokaliseFileExchange } from "../../../lib/services/LokaliseFileExchange.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
 import type { TestableLokaliseFileExchange } from "../../fixtures/fake_interfaces/TestableLokaliseFileExchange.js";
 import {
@@ -110,7 +111,10 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 				},
 			);
 			const sleepSpy = vi
-				.spyOn(downloader as unknown as TestableLokaliseFileExchange, "sleep")
+				.spyOn(
+					LokaliseFileExchange as unknown as TestableLokaliseFileExchange,
+					"sleep",
+				)
 				.mockResolvedValue(undefined);
 
 			let callCount = 0;
@@ -162,7 +166,10 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 				},
 			);
 			const sleepSpy = vi
-				.spyOn(downloader as unknown as TestableLokaliseFileExchange, "sleep")
+				.spyOn(
+					LokaliseFileExchange as unknown as TestableLokaliseFileExchange,
+					"sleep",
+				)
 				.mockResolvedValue(undefined);
 
 			let callCount = 0;
@@ -282,7 +289,10 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 				},
 			);
 			const sleepSpy = vi
-				.spyOn(downloader as unknown as TestableLokaliseFileExchange, "sleep")
+				.spyOn(
+					LokaliseFileExchange as unknown as TestableLokaliseFileExchange,
+					"sleep",
+				)
 				.mockResolvedValue(undefined);
 
 			let callCount = 0;

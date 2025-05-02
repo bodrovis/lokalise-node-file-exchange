@@ -142,7 +142,8 @@ export class LokaliseUpload extends LokaliseFileExchange {
 				throw new Error("Invalid language code: empty or only whitespace");
 			}
 		} catch {
-			languageCode = path.parse(path.basename(relativePath)).name;
+			const baseName = path.basename(relativePath);
+			languageCode = baseName.split(".").slice(-2, -1)[0] ?? "unknown";
 		}
 
 		const fileContent = await fs.promises.readFile(file);

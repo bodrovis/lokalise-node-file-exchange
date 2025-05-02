@@ -43,7 +43,11 @@ export class LokaliseFileExchange {
 		"running",
 		"post_processing",
 	];
-	private static readonly FINISHED_STATUSES = ["finished", "cancelled", "failed"];
+	private static readonly FINISHED_STATUSES = [
+		"finished",
+		"cancelled",
+		"failed",
+	];
 
 	private static readonly RETRYABLE_CODES = [408, 429];
 
@@ -120,7 +124,9 @@ export class LokaliseFileExchange {
 						);
 					}
 
-					await this.sleep(initialSleepTime * 2 ** (attempt - 1));
+					await LokaliseFileExchange.sleep(
+						initialSleepTime * 2 ** (attempt - 1),
+					);
 				} else if (error instanceof LokaliseApiError) {
 					throw new LokaliseError(error.message, error.code, error.details);
 				} else {
@@ -130,6 +136,7 @@ export class LokaliseFileExchange {
 		}
 
 		// This line is unreachable but keeps TS happy.
+		// istanbul ignore next
 		throw new LokaliseError("Unexpected error during operation.", 500);
 	}
 
@@ -174,7 +181,11 @@ export class LokaliseFileExchange {
 
 						processMap.set(processId, updatedProcess);
 
-						if (LokaliseFileExchange.FINISHED_STATUSES.includes(updatedProcess.status)) {
+						if (
+							LokaliseFileExchange.FINISHED_STATUSES.includes(
+								updatedProcess.status,
+							)
+						) {
 							pendingProcessIds.delete(processId);
 						}
 					} catch (_error) {
@@ -190,7 +201,7 @@ export class LokaliseFileExchange {
 				break;
 			}
 
-			await this.sleep(waitTime);
+			await LokaliseFileExchange.sleep(waitTime);
 			waitTime = Math.min(waitTime * 2, maxWaitTime - (Date.now() - startTime));
 		}
 
@@ -203,7 +214,7 @@ export class LokaliseFileExchange {
 	 * @param ms - The time to sleep in milliseconds.
 	 * @returns A promise that resolves after the specified time.
 	 */
-	protected sleep(ms: number): Promise<void> {
+	protected static sleep(ms: number): Promise<void> {
 		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 

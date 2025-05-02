@@ -21,7 +21,7 @@ describe("LokaliseUpload: processFile()", () => {
 				},
 			},
 			"/project/other": {
-				"de-DE.json": '{"schlüssel": "wert"}',
+				"main.de-DE.json": '{"schlüssel": "wert"}',
 			},
 		});
 
@@ -71,12 +71,12 @@ describe("LokaliseUpload: processFile()", () => {
 
 		it("should process a file from another directory and return correct ProcessedFile object", async () => {
 			const result = await lokaliseUpload.processFile(
-				"/project/other/de-DE.json",
+				"/project/other/main.de-DE.json",
 				"/project",
 			);
 			expect(result).toEqual({
 				data: Buffer.from('{"schlüssel": "wert"}').toString("base64"),
-				filename: path.posix.join("other", "de-DE.json"),
+				filename: path.posix.join("other", "main.de-DE.json"),
 				lang_iso: "de-DE",
 			});
 		});

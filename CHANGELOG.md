@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Make code more solid and bulletproof
+
 ## 3.0.0 (12-Apr-2025)
 
 - **Potentially breaking change**: `excludePatterns` for `LokaliseUpload` now defaults to `[]` (empty array).

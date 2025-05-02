@@ -77,6 +77,17 @@ describe("LokaliseFileExchange", () => {
 					);
 				}).toThrow("maxRetries must be greater than or equal to zero.");
 			});
+
+			it("should throw an error when initialSleepTime is non-positive", () => {
+				expect(() => {
+					new LokaliseFileExchange(
+						{
+							apiKey: "abc123",
+						},
+						{ projectId: "123.abc", retryParams: { initialSleepTime: -1 } },
+					);
+				}).toThrow("initialSleepTime must be a positive value.");
+			});
 		});
 	});
 });

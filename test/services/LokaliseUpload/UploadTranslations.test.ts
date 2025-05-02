@@ -185,7 +185,8 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 						data: {
 							process: {
 								process_id: `${processIdPrefix}-${uploadCount}`,
-								status: "queued",
+								// Missing status should be assumed as queued
+								// status: "queued",
 							},
 						},
 					};

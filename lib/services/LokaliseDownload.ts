@@ -160,6 +160,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				readStream.pipe(writeStream);
 				writeStream.on("finish", response);
 				writeStream.on("error", reject);
+				readStream.on("error", reject);
 			});
 		});
 	}
