@@ -197,18 +197,14 @@ describe("LokaliseDownload: downloadZip()", () => {
 		});
 
 		it("should throw a timeout error if the download takes too long", async () => {
-			vi.spyOn(global, "fetch").mockImplementation(
-				() =>
-					new Promise((_, reject) => {
-						setTimeout(
-							() =>
-								reject(
-									new DOMException("The operation was aborted.", "AbortError"),
-								),
-							5,
-						);
-					}),
-			);
+			const pool = mockPool
+				.intercept({
+					path: "/download.zip",
+					method: "GET",
+				})
+				.reply(200, "Mock ZIP content");
+
+			pool.delay(1000);
 
 			await expect(
 				downloader.downloadZip("https://example.com/download.zip", 1),

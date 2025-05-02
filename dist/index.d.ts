@@ -91,9 +91,9 @@ declare class LokaliseFileExchange {
      * Default retry parameters for API requests.
      */
     private static readonly defaultRetryParams;
-    private readonly PENDING_STATUSES;
-    private readonly FINISHED_STATUSES;
-    private readonly RETRYABLE_CODES;
+    private static readonly PENDING_STATUSES;
+    private static readonly FINISHED_STATUSES;
+    private static readonly RETRYABLE_CODES;
     /**
      * Creates a new instance of LokaliseFileExchange.
      *
@@ -130,7 +130,8 @@ declare class LokaliseFileExchange {
      * @param ms - The time to sleep in milliseconds.
      * @returns A promise that resolves after the specified time.
      */
-    protected sleep(ms: number): Promise<void>;
+    protected static sleep(ms: number): Promise<void>;
+    private getUpdatedProcess;
 }
 
 /**
@@ -154,6 +155,7 @@ declare class LokaliseDownload extends LokaliseFileExchange {
      * @throws {LokaliseError} If extraction fails or malicious paths are detected.
      */
     protected unpackZip(zipFilePath: string, outputDir: string): Promise<void>;
+    private handleZipEntry;
     /**
      * Downloads a ZIP file from the given URL.
      *
@@ -161,7 +163,7 @@ declare class LokaliseDownload extends LokaliseFileExchange {
      * @returns The file path of the downloaded ZIP file.
      * @throws {LokaliseError} If the download fails or the response body is empty.
      */
-    protected downloadZip(url: string, downloadTimeout: number | undefined): Promise<string>;
+    protected downloadZip(url: string, downloadTimeout?: number): Promise<string>;
     /**
      * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
      *
@@ -178,6 +180,9 @@ declare class LokaliseDownload extends LokaliseFileExchange {
      * @throws {LokaliseError} If retries are exhausted or an API error occurs.
      */
     protected getTranslationsBundleAsync(downloadFileParams: DownloadFileParams): Promise<QueuedProcess>;
+    private createDir;
+    private processZipEntryPath;
+    private assertHttpUrl;
 }
 
 /**
@@ -225,6 +230,15 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
      */
     private parallelUpload;
+    private normalizeExtensions;
+    private shouldCollectFile;
+    private makeFilenameRegexp;
+    private makeExcludeRegExes;
+    private safeReadDir;
+    private shouldExclude;
+    private makeQueue;
+    private processCollectionQueue;
+    private handleEntry;
 }
 
 /**

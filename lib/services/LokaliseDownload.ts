@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
-import path, { parse } from "node:path";
+import path from "node:path";
 import { pipeline } from "node:stream";
 import { promisify } from "node:util";
 import type {
@@ -191,7 +191,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			});
 		} catch (err) {
 			if (err instanceof Error) {
-				if (err.name === "AbortError") {
+				if (err.name === "TimeoutError") {
 					throw new LokaliseError(
 						`Request timed out after ${downloadTimeout}ms`,
 						408,

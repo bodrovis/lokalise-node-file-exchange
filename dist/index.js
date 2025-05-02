@@ -72,14 +72,18 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     maxRetries: 3,
     initialSleepTime: 1e3
   };
-  PENDING_STATUSES = [
+  static PENDING_STATUSES = [
     "queued",
     "pre_processing",
     "running",
     "post_processing"
   ];
-  FINISHED_STATUSES = ["finished", "cancelled", "failed"];
-  RETRYABLE_CODES = [408, 429];
+  static FINISHED_STATUSES = [
+    "finished",
+    "cancelled",
+    "failed"
+  ];
+  static RETRYABLE_CODES = [408, 429];
   /**
    * Creates a new instance of LokaliseFileExchange.
    *
@@ -131,7 +135,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
       try {
         return await operation();
       } catch (error) {
-        if (error instanceof LokaliseApiError && this.RETRYABLE_CODES.includes(error.code)) {
+        if (error instanceof LokaliseApiError && _LokaliseFileExchange.RETRYABLE_CODES.includes(error.code)) {
           if (attempt === maxRetries + 1) {
             throw new LokaliseError(
               `Maximum retries reached: ${error.message ?? "Unknown error"}`,
@@ -139,7 +143,9 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
               error.details
             );
           }
-          await this.sleep(initialSleepTime * 2 ** (attempt - 1));
+          await _LokaliseFileExchange.sleep(
+            initialSleepTime * 2 ** (attempt - 1)
+          );
         } else if (error instanceof LokaliseApiError) {
           throw new LokaliseError(error.message, error.code, error.details);
         } else {
@@ -167,7 +173,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
         process2.status = "queued";
       }
       processMap.set(process2.process_id, process2);
-      if (this.PENDING_STATUSES.includes(process2.status)) {
+      if (_LokaliseFileExchange.PENDING_STATUSES.includes(process2.status)) {
         pendingProcessIds.add(process2.process_id);
       }
     }
@@ -175,12 +181,11 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
       await Promise.all(
         [...pendingProcessIds].map(async (processId) => {
           try {
-            const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
-            if (!updatedProcess.status) {
-              updatedProcess.status = "queued";
-            }
+            const updatedProcess = await this.getUpdatedProcess(processId);
             processMap.set(processId, updatedProcess);
-            if (this.FINISHED_STATUSES.includes(updatedProcess.status)) {
+            if (_LokaliseFileExchange.FINISHED_STATUSES.includes(
+              updatedProcess.status
+            )) {
               pendingProcessIds.delete(processId);
             }
           } catch (_error) {
@@ -190,7 +195,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
       if (pendingProcessIds.size === 0 || Date.now() - startTime >= maxWaitTime) {
         break;
       }
-      await this.sleep(waitTime);
+      await _LokaliseFileExchange.sleep(waitTime);
       waitTime = Math.min(waitTime * 2, maxWaitTime - (Date.now() - startTime));
     }
     return Array.from(processMap.values());
@@ -201,8 +206,15 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    * @param ms - The time to sleep in milliseconds.
    * @returns A promise that resolves after the specified time.
    */
-  sleep(ms) {
+  static sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  async getUpdatedProcess(processId) {
+    const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
+    if (!updatedProcess.status) {
+      updatedProcess.status = "queued";
+    }
+    return updatedProcess;
   }
 };
 
@@ -213,7 +225,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
     asyncDownload: false,
     pollInitialWaitTime: 1e3,
     pollMaximumWaitTime: 12e4,
-    bundleDownloadTimeout: void 0
+    bundleDownloadTimeout: 0
   };
   /**
    * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
@@ -277,11 +289,8 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
    * @throws {LokaliseError} If extraction fails or malicious paths are detected.
    */
   async unpackZip(zipFilePath, outputDir) {
-    const createDir = async (dir) => {
-      await fs.promises.mkdir(dir, { recursive: true });
-    };
     return new Promise((resolve, reject) => {
-      yauzl.open(zipFilePath, { lazyEntries: true }, async (err, zipfile) => {
+      yauzl.open(zipFilePath, { lazyEntries: true }, (err, zipfile) => {
         if (err) {
           return reject(
             new LokaliseError(
@@ -295,40 +304,33 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
           );
         }
         zipfile.readEntry();
-        zipfile.on("entry", async (entry) => {
-          try {
-            const fullPath = path.resolve(outputDir, entry.fileName);
-            const relative = path.relative(outputDir, fullPath);
-            if (relative.startsWith("..") || path.isAbsolute(relative)) {
-              throw new LokaliseError(
-                `Malicious ZIP entry detected: ${entry.fileName}`
-              );
-            }
-            if (/\/$/.test(entry.fileName)) {
-              await createDir(fullPath);
-              zipfile.readEntry();
-            } else {
-              await createDir(path.dirname(fullPath));
-              const writeStream = fs.createWriteStream(fullPath);
-              zipfile.openReadStream(entry, (readErr, readStream) => {
-                if (readErr || !readStream) {
-                  return reject(
-                    new LokaliseError(
-                      `Failed to read ZIP entry: ${entry.fileName}`
-                    )
-                  );
-                }
-                readStream.pipe(writeStream);
-                writeStream.on("finish", () => zipfile.readEntry());
-                writeStream.on("error", reject);
-              });
-            }
-          } catch (error) {
-            return reject(error);
-          }
+        zipfile.on("entry", (entry) => {
+          this.handleZipEntry(entry, zipfile, outputDir).then(() => zipfile.readEntry()).catch(reject);
         });
-        zipfile.on("end", () => resolve());
+        zipfile.on("end", resolve);
         zipfile.on("error", reject);
+      });
+    });
+  }
+  async handleZipEntry(entry, zipfile, outputDir) {
+    const fullPath = this.processZipEntryPath(outputDir, entry.fileName);
+    if (entry.fileName.endsWith("/")) {
+      await this.createDir(fullPath);
+      return;
+    }
+    await this.createDir(path.dirname(fullPath));
+    return new Promise((response, reject) => {
+      zipfile.openReadStream(entry, (readErr, readStream) => {
+        if (readErr || !readStream) {
+          return reject(
+            new LokaliseError(`Failed to read ZIP entry: ${entry.fileName}`)
+          );
+        }
+        const writeStream = fs.createWriteStream(fullPath);
+        readStream.pipe(writeStream);
+        writeStream.on("finish", response);
+        writeStream.on("error", reject);
+        readStream.on("error", reject);
       });
     });
   }
@@ -339,27 +341,19 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
    * @returns The file path of the downloaded ZIP file.
    * @throws {LokaliseError} If the download fails or the response body is empty.
    */
-  async downloadZip(url, downloadTimeout) {
-    if (!/^https?:\/\//.test(url)) {
-      throw new LokaliseError(`Invalid URL: ${url}`);
-    }
-    const tempZipPath = path.join(
-      os.tmpdir(),
-      `lokalise-translations-${Date.now()}.zip`
-    );
-    const controller = new AbortController();
-    let timeoutId = null;
+  async downloadZip(url, downloadTimeout = 0) {
+    const bundleURL = this.assertHttpUrl(url);
+    const uid = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const tempZipPath = path.join(os.tmpdir(), `lokalise-${uid}.zip`);
     let response;
-    if (downloadTimeout && downloadTimeout > 0) {
-      timeoutId = setTimeout(() => controller.abort(), downloadTimeout);
-    }
+    const signal = downloadTimeout > 0 ? AbortSignal.timeout(downloadTimeout) : void 0;
     try {
-      response = await fetch(url, {
-        signal: controller.signal
+      response = await fetch(bundleURL, {
+        signal
       });
     } catch (err) {
       if (err instanceof Error) {
-        if (err.name === "AbortError") {
+        if (err.name === "TimeoutError") {
           throw new LokaliseError(
             `Request timed out after ${downloadTimeout}ms`,
             408,
@@ -375,10 +369,6 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
       throw new LokaliseError("An unknown error occurred", 500, {
         reason: String(err)
       });
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
     }
     if (!response.ok) {
       throw new LokaliseError(
@@ -417,6 +407,29 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
     return this.withExponentialBackoff(
       () => this.apiClient.files().async_download(this.projectId, downloadFileParams)
     );
+  }
+  async createDir(dir) {
+    await fs.promises.mkdir(dir, { recursive: true });
+  }
+  processZipEntryPath(outputDir, entryFilename) {
+    const fullPath = path.resolve(outputDir, entryFilename);
+    const relative = path.relative(outputDir, fullPath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new LokaliseError(`Malicious ZIP entry detected: ${entryFilename}`);
+    }
+    return fullPath;
+  }
+  assertHttpUrl(value) {
+    let parsed;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new LokaliseError(`Invalid URL: ${value}`);
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new LokaliseError(`Unsupported protocol in URL: ${value}`);
+    }
+    return parsed;
   }
 };
 
@@ -474,53 +487,18 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     recursive = true,
     fileNamePattern = ".*"
   } = {}) {
-    const collectedFiles = [];
-    const queue = [...inputDirs.map((dir) => path2.resolve(dir))];
-    const normalizedExtensions = extensions.map(
-      (ext) => ext.startsWith(".") ? ext : `.${ext}`
+    const queue = this.makeQueue(inputDirs);
+    const normalizedExtensions = this.normalizeExtensions(extensions);
+    const fileNameRegex = this.makeFilenameRegexp(fileNamePattern);
+    const excludeRegexes = this.makeExcludeRegExes(excludePatterns);
+    const files = await this.processCollectionQueue(
+      queue,
+      normalizedExtensions,
+      fileNameRegex,
+      excludeRegexes,
+      recursive
     );
-    let fileNameRegex;
-    try {
-      fileNameRegex = new RegExp(fileNamePattern);
-    } catch {
-      throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
-    }
-    let excludeRegexes = [];
-    try {
-      excludeRegexes = excludePatterns.map((pattern) => new RegExp(pattern));
-    } catch (err) {
-      throw new Error(`Invalid excludePatterns: ${err}`);
-    }
-    while (queue.length > 0) {
-      const dir = queue.shift();
-      if (!dir) {
-        continue;
-      }
-      let entries;
-      try {
-        entries = await fs2.promises.readdir(dir, { withFileTypes: true });
-      } catch {
-        console.warn(`Skipping inaccessible directory: ${dir}`);
-        continue;
-      }
-      for (const entry of entries) {
-        const fullPath = path2.resolve(dir, entry.name);
-        if (excludeRegexes.some((regex) => regex.test(fullPath))) {
-          continue;
-        }
-        if (entry.isDirectory() && recursive) {
-          queue.push(fullPath);
-        } else if (entry.isFile()) {
-          const fileExt = path2.extname(entry.name);
-          const matchesExtension = normalizedExtensions.includes(".*") || normalizedExtensions.includes(fileExt);
-          const matchesFilenamePattern = fileNameRegex.test(entry.name);
-          if (matchesExtension && matchesFilenamePattern) {
-            collectedFiles.push(fullPath);
-          }
-        }
-      }
-    }
-    return collectedFiles.sort();
+    return files.sort();
   }
   /**
    * Uploads a single file to Lokalise.
@@ -562,7 +540,8 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
         throw new Error("Invalid language code: empty or only whitespace");
       }
     } catch {
-      languageCode = path2.parse(path2.basename(relativePath)).name;
+      const baseName = path2.basename(relativePath);
+      languageCode = baseName.split(".").slice(-2, -1)[0] ?? "unknown";
     }
     const fileContent = await fs2.promises.readFile(file);
     return {
@@ -583,10 +562,11 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     const projectRoot = process.cwd();
     const queuedProcesses = [];
     const errors = [];
+    const fileQueue = [...files];
     const pool = new Array(this.maxConcurrentProcesses).fill(null).map(
       () => (async () => {
-        while (files.length > 0) {
-          const file = files.shift();
+        while (fileQueue.length > 0) {
+          const file = fileQueue.shift();
           if (!file) {
             break;
           }
@@ -609,6 +589,82 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     );
     await Promise.all(pool);
     return { processes: queuedProcesses, errors };
+  }
+  normalizeExtensions(extensions) {
+    return extensions.map(
+      (ext) => (ext.startsWith(".") ? ext : `.${ext}`).toLowerCase()
+    );
+  }
+  shouldCollectFile(entry, normalizedExtensions, fileNameRegex) {
+    const fileExt = path2.extname(entry.name).toLowerCase();
+    const matchesExtension = normalizedExtensions.includes(".*") || normalizedExtensions.includes(fileExt);
+    const matchesFilenamePattern = fileNameRegex.test(entry.name);
+    return matchesExtension && matchesFilenamePattern;
+  }
+  makeFilenameRegexp(fileNamePattern) {
+    try {
+      return new RegExp(fileNamePattern);
+    } catch {
+      throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
+    }
+  }
+  makeExcludeRegExes(excludePatterns) {
+    if (excludePatterns.length === 0) {
+      return [];
+    }
+    try {
+      return excludePatterns.map((pattern) => new RegExp(pattern));
+    } catch (err) {
+      throw new Error(`Invalid excludePatterns: ${err}`);
+    }
+  }
+  async safeReadDir(dir) {
+    try {
+      return await fs2.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      console.warn(`Skipping inaccessible directory: ${dir}`);
+      return [];
+    }
+  }
+  shouldExclude(filePath, excludeRegexes) {
+    return excludeRegexes.some((regex) => regex.test(filePath));
+  }
+  makeQueue(inputDirs) {
+    return [...inputDirs.map((dir) => path2.resolve(dir))];
+  }
+  async processCollectionQueue(queue, exts, nameRx, excludeRx, recursive) {
+    const found = [];
+    while (queue.length) {
+      const dir = queue.shift();
+      if (!dir) {
+        continue;
+      }
+      const entries = await this.safeReadDir(dir);
+      for (const entry of entries) {
+        const fullPath = path2.resolve(dir, entry.name);
+        this.handleEntry(entry, fullPath, queue, found, {
+          exts,
+          nameRx,
+          excludeRx,
+          recursive
+        });
+      }
+    }
+    return found;
+  }
+  handleEntry(entry, fullPath, queue, found, opts) {
+    if (this.shouldExclude(fullPath, opts.excludeRx)) {
+      return;
+    }
+    if (entry.isDirectory()) {
+      if (opts.recursive) {
+        queue.push(fullPath);
+      }
+      return;
+    }
+    if (entry.isFile() && this.shouldCollectFile(entry, opts.exts, opts.nameRx)) {
+      found.push(fullPath);
+    }
   }
 };
 export {
