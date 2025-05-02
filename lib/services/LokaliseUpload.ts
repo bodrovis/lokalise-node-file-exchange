@@ -74,65 +74,20 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		recursive = true,
 		fileNamePattern = ".*",
 	}: CollectFileParams = {}): Promise<string[]> {
-		const collectedFiles: string[] = [];
-		const queue: string[] = [...inputDirs.map((dir) => path.resolve(dir))];
+		const queue = this.makeQueue(inputDirs);
+		const normalizedExtensions = this.normalizeExtensions(extensions);
+		const fileNameRegex = this.makeFilenameRegexp(fileNamePattern);
+		const excludeRegexes = this.makeExcludeRegExes(excludePatterns);
 
-		const normalizedExtensions = extensions.map((ext) =>
-			ext.startsWith(".") ? ext : `.${ext}`,
+		const files = await this.processCollectionQueue(
+			queue,
+			normalizedExtensions,
+			fileNameRegex,
+			excludeRegexes,
+			recursive,
 		);
 
-		let fileNameRegex: RegExp;
-		try {
-			fileNameRegex = new RegExp(fileNamePattern);
-		} catch {
-			throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
-		}
-
-		let excludeRegexes: RegExp[] = [];
-		try {
-			excludeRegexes = excludePatterns.map((pattern) => new RegExp(pattern));
-		} catch (err) {
-			throw new Error(`Invalid excludePatterns: ${err}`);
-		}
-
-		while (queue.length > 0) {
-			const dir = queue.shift();
-			if (!dir) {
-				continue;
-			}
-
-			let entries: fs.Dirent[];
-			try {
-				entries = await fs.promises.readdir(dir, { withFileTypes: true });
-			} catch {
-				console.warn(`Skipping inaccessible directory: ${dir}`);
-				continue;
-			}
-
-			for (const entry of entries) {
-				const fullPath = path.resolve(dir, entry.name);
-
-				if (excludeRegexes.some((regex) => regex.test(fullPath))) {
-					continue;
-				}
-
-				if (entry.isDirectory() && recursive) {
-					queue.push(fullPath);
-				} else if (entry.isFile()) {
-					const fileExt = path.extname(entry.name);
-					const matchesExtension =
-						normalizedExtensions.includes(".*") ||
-						normalizedExtensions.includes(fileExt);
-					const matchesFilenamePattern = fileNameRegex.test(entry.name);
-
-					if (matchesExtension && matchesFilenamePattern) {
-						collectedFiles.push(fullPath);
-					}
-				}
-			}
-		}
-
-		return collectedFiles.sort(); // Ensure deterministic output
+		return files.sort();
 	}
 
 	/**
@@ -215,11 +170,12 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		const projectRoot = process.cwd();
 		const queuedProcesses: QueuedProcess[] = [];
 		const errors: FileUploadError[] = [];
+		const fileQueue = [...files];
 
 		const pool = new Array(this.maxConcurrentProcesses).fill(null).map(() =>
 			(async () => {
-				while (files.length > 0) {
-					const file = files.shift();
+				while (fileQueue.length > 0) {
+					const file = fileQueue.shift();
 					if (!file) {
 						break;
 					}
@@ -244,5 +200,121 @@ export class LokaliseUpload extends LokaliseFileExchange {
 
 		await Promise.all(pool);
 		return { processes: queuedProcesses, errors };
+	}
+
+	private normalizeExtensions(extensions: string[]): string[] {
+		return extensions.map((ext) =>
+			(ext.startsWith(".") ? ext : `.${ext}`).toLowerCase(),
+		);
+	}
+
+	private shouldCollectFile(
+		entry: fs.Dirent,
+		normalizedExtensions: string[],
+		fileNameRegex: RegExp,
+	): boolean {
+		const fileExt = path.extname(entry.name).toLowerCase();
+		const matchesExtension =
+			normalizedExtensions.includes(".*") ||
+			normalizedExtensions.includes(fileExt);
+		const matchesFilenamePattern = fileNameRegex.test(entry.name);
+
+		return matchesExtension && matchesFilenamePattern;
+	}
+
+	private makeFilenameRegexp(fileNamePattern: string | RegExp): RegExp {
+		try {
+			return new RegExp(fileNamePattern);
+		} catch {
+			throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
+		}
+	}
+
+	private makeExcludeRegExes(excludePatterns: string[] | RegExp[]): RegExp[] {
+		if (excludePatterns.length === 0) {
+			return [];
+		}
+		try {
+			return excludePatterns.map((pattern) => new RegExp(pattern));
+		} catch (err) {
+			throw new Error(`Invalid excludePatterns: ${err}`);
+		}
+	}
+
+	private async safeReadDir(dir: string): Promise<fs.Dirent[]> {
+		try {
+			return await fs.promises.readdir(dir, { withFileTypes: true });
+		} catch {
+			console.warn(`Skipping inaccessible directory: ${dir}`);
+			return [];
+		}
+	}
+
+	private shouldExclude(filePath: string, excludeRegexes: RegExp[]): boolean {
+		return excludeRegexes.some((regex) => regex.test(filePath));
+	}
+
+	private makeQueue(inputDirs: string[]): string[] {
+		return [...inputDirs.map((dir) => path.resolve(dir))];
+	}
+
+	private async processCollectionQueue(
+		queue: string[],
+		exts: string[],
+		nameRx: RegExp,
+		excludeRx: RegExp[],
+		recursive: boolean,
+	): Promise<string[]> {
+		const found: string[] = [];
+
+		while (queue.length) {
+			const dir = queue.shift();
+			if (!dir) {
+				continue;
+			}
+
+			const entries = await this.safeReadDir(dir);
+			for (const entry of entries) {
+				const fullPath = path.resolve(dir, entry.name);
+				this.handleEntry(entry, fullPath, queue, found, {
+					exts,
+					nameRx,
+					excludeRx,
+					recursive,
+				});
+			}
+		}
+		return found;
+	}
+
+	private handleEntry(
+		entry: fs.Dirent,
+		fullPath: string,
+		queue: string[],
+		found: string[],
+		opts: {
+			exts: string[];
+			nameRx: RegExp;
+			excludeRx: RegExp[];
+			recursive: boolean;
+		},
+	): void {
+		if (this.shouldExclude(fullPath, opts.excludeRx)) {
+			return;
+		}
+
+		if (entry.isDirectory()) {
+			if (opts.recursive) {
+				queue.push(fullPath);
+			}
+			return;
+		}
+
+		if (
+			entry.isFile() &&
+			this.shouldCollectFile(entry, opts.exts, opts.nameRx)
+		) {
+			found.push(fullPath);
+		}
 	}
 }

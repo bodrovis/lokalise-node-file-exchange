@@ -363,7 +363,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 						pollMaximumWaitTime: 1000,
 					},
 				}),
-			).rejects.toThrow(`Invalid URL: ${url}`);
+			).rejects.toThrow(`Unsupported protocol in URL: ${url}`);
 		});
 	});
 });

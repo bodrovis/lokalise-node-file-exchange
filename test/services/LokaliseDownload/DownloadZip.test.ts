@@ -92,7 +92,7 @@ describe("LokaliseDownload: downloadZip()", () => {
 			expect(zipPath).toBe(mockTempPath);
 			expect(path.join).toHaveBeenCalledWith(
 				os.tmpdir(),
-				expect.stringMatching(/^lokalise-translations-.*\.zip$/),
+				expect.stringMatching(/^lokalise-.*\.zip$/),
 			);
 			expect(fs.createWriteStream).toHaveBeenCalledWith(mockTempPath);
 		});
@@ -139,8 +139,8 @@ describe("LokaliseDownload: downloadZip()", () => {
 		});
 
 		it("should throw an error for a malformed URL", async () => {
-			await expect(downloader.downloadZip("htp://invalid-url")).rejects.toThrow(
-				"Invalid URL: htp://invalid-url",
+			await expect(downloader.downloadZip("invalid-url")).rejects.toThrow(
+				"Invalid URL: invalid-url",
 			);
 		});
 

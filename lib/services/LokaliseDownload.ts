@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
-import path from "node:path";
+import path, { parse } from "node:path";
 import { pipeline } from "node:stream";
 import { promisify } from "node:util";
 import type {
@@ -23,7 +23,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		asyncDownload: false,
 		pollInitialWaitTime: 1000,
 		pollMaximumWaitTime: 120_000,
-		bundleDownloadTimeout: undefined,
+		bundleDownloadTimeout: 0,
 	};
 
 	/**
@@ -103,12 +103,8 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		zipFilePath: string,
 		outputDir: string,
 	): Promise<void> {
-		const createDir = async (dir: string): Promise<void> => {
-			await fs.promises.mkdir(dir, { recursive: true });
-		};
-
 		return new Promise((resolve, reject) => {
-			yauzl.open(zipFilePath, { lazyEntries: true }, async (err, zipfile) => {
+			yauzl.open(zipFilePath, { lazyEntries: true }, (err, zipfile) => {
 				if (err) {
 					return reject(
 						new LokaliseError(
@@ -124,45 +120,46 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				}
 
 				zipfile.readEntry();
-				zipfile.on("entry", async (entry) => {
-					try {
-						// Validate paths to avoid path traversal issues
-						const fullPath = path.resolve(outputDir, entry.fileName);
-						const relative = path.relative(outputDir, fullPath);
-						if (relative.startsWith("..") || path.isAbsolute(relative)) {
-							throw new LokaliseError(
-								`Malicious ZIP entry detected: ${entry.fileName}`,
-							);
-						}
 
-						if (/\/$/.test(entry.fileName)) {
-							// Directory
-							await createDir(fullPath);
-							zipfile.readEntry();
-						} else {
-							// File
-							await createDir(path.dirname(fullPath));
-							const writeStream = fs.createWriteStream(fullPath);
-							zipfile.openReadStream(entry, (readErr, readStream) => {
-								if (readErr || !readStream) {
-									return reject(
-										new LokaliseError(
-											`Failed to read ZIP entry: ${entry.fileName}`,
-										),
-									);
-								}
-								readStream.pipe(writeStream);
-								writeStream.on("finish", () => zipfile.readEntry());
-								writeStream.on("error", reject);
-							});
-						}
-					} catch (error) {
-						return reject(error);
-					}
+				zipfile.on("entry", (entry) => {
+					this.handleZipEntry(entry, zipfile, outputDir)
+						.then(() => zipfile.readEntry())
+						.catch(reject);
 				});
 
-				zipfile.on("end", () => resolve());
+				zipfile.on("end", resolve);
 				zipfile.on("error", reject);
+			});
+		});
+	}
+
+	private async handleZipEntry(
+		entry: yauzl.Entry,
+		zipfile: yauzl.ZipFile,
+		outputDir: string,
+	): Promise<void> {
+		const fullPath = this.processZipEntryPath(outputDir, entry.fileName);
+
+		if (entry.fileName.endsWith("/")) {
+			// it's a directory
+			await this.createDir(fullPath);
+			return;
+		}
+
+		await this.createDir(path.dirname(fullPath));
+
+		return new Promise((response, reject) => {
+			zipfile.openReadStream(entry, (readErr, readStream) => {
+				if (readErr || !readStream) {
+					return reject(
+						new LokaliseError(`Failed to read ZIP entry: ${entry.fileName}`),
+					);
+				}
+
+				const writeStream = fs.createWriteStream(fullPath);
+				readStream.pipe(writeStream);
+				writeStream.on("finish", response);
+				writeStream.on("error", reject);
 			});
 		});
 	}
@@ -176,28 +173,20 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	 */
 	protected async downloadZip(
 		url: string,
-		downloadTimeout: number | undefined,
+		downloadTimeout = 0,
 	): Promise<string> {
-		if (!/^https?:\/\//.test(url)) {
-			throw new LokaliseError(`Invalid URL: ${url}`);
-		}
+		const bundleURL = this.assertHttpUrl(url);
 
-		const tempZipPath = path.join(
-			os.tmpdir(),
-			`lokalise-translations-${Date.now()}.zip`,
-		);
-
-		const controller = new AbortController();
-		let timeoutId: NodeJS.Timeout | null = null;
+		const uid = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		const tempZipPath = path.join(os.tmpdir(), `lokalise-${uid}.zip`);
 		let response: Response;
 
-		if (downloadTimeout && downloadTimeout > 0) {
-			timeoutId = setTimeout(() => controller.abort(), downloadTimeout);
-		}
+		const signal =
+			downloadTimeout > 0 ? AbortSignal.timeout(downloadTimeout) : undefined;
 
 		try {
-			response = await fetch(url, {
-				signal: controller.signal,
+			response = await fetch(bundleURL, {
+				signal,
 			});
 		} catch (err) {
 			if (err instanceof Error) {
@@ -219,10 +208,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			throw new LokaliseError("An unknown error occurred", 500, {
 				reason: String(err),
 			});
-		} finally {
-			if (timeoutId) {
-				clearTimeout(timeoutId);
-			}
 		}
 
 		if (!response.ok) {
@@ -270,5 +255,38 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		return this.withExponentialBackoff(() =>
 			this.apiClient.files().async_download(this.projectId, downloadFileParams),
 		);
+	}
+
+	private async createDir(dir: string): Promise<void> {
+		await fs.promises.mkdir(dir, { recursive: true });
+	}
+
+	private processZipEntryPath(
+		outputDir: string,
+		entryFilename: string,
+	): string {
+		// Validate paths to avoid path traversal issues
+		const fullPath = path.resolve(outputDir, entryFilename);
+		const relative = path.relative(outputDir, fullPath);
+		if (relative.startsWith("..") || path.isAbsolute(relative)) {
+			throw new LokaliseError(`Malicious ZIP entry detected: ${entryFilename}`);
+		}
+
+		return fullPath;
+	}
+
+	private assertHttpUrl(value: string): URL {
+		let parsed: URL;
+		try {
+			parsed = new URL(value);
+		} catch {
+			throw new LokaliseError(`Invalid URL: ${value}`);
+		}
+
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+			throw new LokaliseError(`Unsupported protocol in URL: ${value}`);
+		}
+
+		return parsed;
 	}
 }

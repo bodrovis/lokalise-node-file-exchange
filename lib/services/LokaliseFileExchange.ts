@@ -37,15 +37,15 @@ export class LokaliseFileExchange {
 		initialSleepTime: 1000,
 	};
 
-	private readonly PENDING_STATUSES = [
+	private static readonly PENDING_STATUSES = [
 		"queued",
 		"pre_processing",
 		"running",
 		"post_processing",
 	];
-	private readonly FINISHED_STATUSES = ["finished", "cancelled", "failed"];
+	private static readonly FINISHED_STATUSES = ["finished", "cancelled", "failed"];
 
-	private readonly RETRYABLE_CODES = [408, 429];
+	private static readonly RETRYABLE_CODES = [408, 429];
 
 	/**
 	 * Creates a new instance of LokaliseFileExchange.
@@ -110,7 +110,7 @@ export class LokaliseFileExchange {
 			} catch (error: unknown) {
 				if (
 					error instanceof LokaliseApiError &&
-					this.RETRYABLE_CODES.includes(error.code)
+					LokaliseFileExchange.RETRYABLE_CODES.includes(error.code)
 				) {
 					if (attempt === maxRetries + 1) {
 						throw new LokaliseError(
@@ -161,7 +161,7 @@ export class LokaliseFileExchange {
 
 			processMap.set(process.process_id, process);
 
-			if (this.PENDING_STATUSES.includes(process.status)) {
+			if (LokaliseFileExchange.PENDING_STATUSES.includes(process.status)) {
 				pendingProcessIds.add(process.process_id);
 			}
 		}
@@ -170,17 +170,11 @@ export class LokaliseFileExchange {
 			await Promise.all(
 				[...pendingProcessIds].map(async (processId) => {
 					try {
-						const updatedProcess = await this.apiClient
-							.queuedProcesses()
-							.get(processId, { project_id: this.projectId });
-
-						if (!updatedProcess.status) {
-							updatedProcess.status = "queued"; // Ensure missing status is defaulted
-						}
+						const updatedProcess = await this.getUpdatedProcess(processId);
 
 						processMap.set(processId, updatedProcess);
 
-						if (this.FINISHED_STATUSES.includes(updatedProcess.status)) {
+						if (LokaliseFileExchange.FINISHED_STATUSES.includes(updatedProcess.status)) {
 							pendingProcessIds.delete(processId);
 						}
 					} catch (_error) {
@@ -211,5 +205,17 @@ export class LokaliseFileExchange {
 	 */
 	protected sleep(ms: number): Promise<void> {
 		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
+	private async getUpdatedProcess(processId: string): Promise<QueuedProcess> {
+		const updatedProcess = await this.apiClient
+			.queuedProcesses()
+			.get(processId, { project_id: this.projectId });
+
+		if (!updatedProcess.status) {
+			updatedProcess.status = "queued"; // Ensure missing status is defaulted
+		}
+
+		return updatedProcess;
 	}
 }

@@ -94,17 +94,23 @@ import { LokaliseUpload } from "lokalise-file-exchange";
 // OR
 import { LokaliseDownload } from "lokalise-file-exchange";
 
-const lokaliseUploader = new LokaliseUpload({apiKey}, {projectId});
+const lokaliseUploader = new LokaliseUpload({ apiKey }, { projectId });
 // OR
-const lokaliseDownloader = new LokaliseDownload({apiKey}, {projectId});
+const lokaliseDownloader = new LokaliseDownload({ apiKey }, { projectId });
 ```
 
 If you're using [OAuth2 flow](https://lokalise.github.io/node-lokalise-api/additional_info/oauth2_flow), set `useOAuth2` option to `true`:
 
 ```js
-const lokaliseUploader = new LokaliseUpload({apiKey}, {projectId, useOAuth2: true});
+const lokaliseUploader = new LokaliseUpload(
+  { apiKey },
+  { projectId, useOAuth2: true },
+);
 // OR
-const lokaliseDownloader = new LokaliseDownload({apiKey}, {projectId, useOAuth2: true});
+const lokaliseDownloader = new LokaliseDownload(
+  { apiKey },
+  { projectId, useOAuth2: true },
+);
 ```
 
 In this case make sure to provide access token for the `apiKey`.
@@ -131,7 +137,11 @@ The second object, `LokaliseExchangeConfig`, contains additional parameters:
 To download translation files from Lokalise into your project, use the `downloadTranslations()` method on the client.
 
 ```js
-await lokaliseDownloader.downloadTranslations({ downloadFileParams, extractParams, processDownloadFileParams });
+await lokaliseDownloader.downloadTranslations({
+  downloadFileParams,
+  extractParams,
+  processDownloadFileParams,
+});
 ```
 
 `downloadTranslations()` accepts a single object, `DownloadTranslationParams`, with three attributes.
@@ -192,7 +202,11 @@ You can configure your download to maintain this structure by specifying `origin
 To upload translation files from Lokalise into your project, use the `uploadTranslations()` method.
 
 ```js
-const { processes, errors } = await lokaliseUploader.uploadTranslations({ uploadFileParams, collectFileParams, processUploadFileParams });
+const { processes, errors } = await lokaliseUploader.uploadTranslations({
+  uploadFileParams,
+  collectFileParams,
+  processUploadFileParams,
+});
 ```
 
 File uploading happens in the background so this method will return an array of [QueuedProcesses](https://developers.lokalise.com/reference/queued-process-object) and an array of errors that happened during uploading.
@@ -283,7 +297,7 @@ const { processes, errors } = await lokaliseUploader.uploadTranslations({
         return "";
       }
     },
-  }
+  },
 });
 ```
 
@@ -306,7 +320,7 @@ const { processes, errors } = await lokaliseUploader.uploadTranslations({
     pollStatuses: true,
     pollInitialWaitTime: 2e3,
     pollMaximumWaitTime: 150e3,
-  }
+  },
 });
 ```
 
