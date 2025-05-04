@@ -23,7 +23,7 @@
 		"lint:fix": "npx @biomejs/biome check --write ./",
 		"lint:fix:unsafe": "npx @biomejs/biome check --write --unsafe ./",
 		"format": "npx @biomejs/biome format ./",
-		"format:fix": "npx @biomejs/biome format ./"
+		"format:fix": "npx @biomejs/biome format --write ./"
 	},
 	"publishConfig": {
 		"access": "public"

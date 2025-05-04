@@ -92,30 +92,17 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    * @throws {LokaliseError} If the provided configuration is invalid.
    */
   constructor(clientConfig, { projectId, useOAuth2 = false, retryParams }) {
-    if (!clientConfig.apiKey || typeof clientConfig.apiKey !== "string") {
-      throw new LokaliseError("Invalid or missing API token.");
-    }
     if (useOAuth2) {
       this.apiClient = new LokaliseApiOAuth(clientConfig);
     } else {
       this.apiClient = new LokaliseApi(clientConfig);
-    }
-    if (!projectId || typeof projectId !== "string") {
-      throw new LokaliseError("Invalid or missing Project ID.");
     }
     this.projectId = projectId;
     this.retryParams = {
       ..._LokaliseFileExchange.defaultRetryParams,
       ...retryParams
     };
-    if (this.retryParams.maxRetries < 0) {
-      throw new LokaliseError(
-        "maxRetries must be greater than or equal to zero."
-      );
-    }
-    if (this.retryParams.initialSleepTime <= 0) {
-      throw new LokaliseError("initialSleepTime must be a positive value.");
-    }
+    this.validateParams();
   }
   /**
    * Executes an asynchronous operation with exponential backoff retry logic.
@@ -135,7 +122,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
       try {
         return await operation();
       } catch (error) {
-        if (error instanceof LokaliseApiError && _LokaliseFileExchange.RETRYABLE_CODES.includes(error.code)) {
+        if (error instanceof LokaliseApiError && this.isRetryable(error)) {
           if (attempt === maxRetries + 1) {
             throw new LokaliseError(
               `Maximum retries reached: ${error.message ?? "Unknown error"}`,
@@ -201,6 +188,49 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     return Array.from(processMap.values());
   }
   /**
+   * Determines if a given error is eligible for retry.
+   *
+   * @param error - The error object returned from the Lokalise API.
+   * @returns `true` if the error is retryable, otherwise `false`.
+   */
+  isRetryable(error) {
+    return _LokaliseFileExchange.RETRYABLE_CODES.includes(error.code);
+  }
+  /**
+   * Retrieves the latest state of a queued process from the API.
+   *
+   * @param processId - The ID of the queued process to fetch.
+   * @returns A promise that resolves to the updated queued process.
+   */
+  async getUpdatedProcess(processId) {
+    const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
+    if (!updatedProcess.status) {
+      updatedProcess.status = "queued";
+    }
+    return updatedProcess;
+  }
+  /**
+   * Validates the required client configuration parameters.
+   *
+   * Checks for a valid `projectId` and ensures that retry parameters
+   * such as `maxRetries` and `initialSleepTime` meet the required conditions.
+   *
+   * @throws {LokaliseError} If `projectId` or `retryParams` is invalid.
+   */
+  validateParams() {
+    if (!this.projectId || typeof this.projectId !== "string") {
+      throw new LokaliseError("Invalid or missing Project ID.");
+    }
+    if (this.retryParams.maxRetries < 0) {
+      throw new LokaliseError(
+        "maxRetries must be greater than or equal to zero."
+      );
+    }
+    if (this.retryParams.initialSleepTime <= 0) {
+      throw new LokaliseError("initialSleepTime must be a positive value.");
+    }
+  }
+  /**
    * Pauses execution for the specified number of milliseconds.
    *
    * @param ms - The time to sleep in milliseconds.
@@ -209,24 +239,17 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   static sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
-  async getUpdatedProcess(processId) {
-    const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
-    if (!updatedProcess.status) {
-      updatedProcess.status = "queued";
-    }
-    return updatedProcess;
-  }
 };
 
 // lib/services/LokaliseDownload.ts
 var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
-  streamPipeline = promisify(pipeline);
   static defaultProcessParams = {
     asyncDownload: false,
     pollInitialWaitTime: 1e3,
     pollMaximumWaitTime: 12e4,
     bundleDownloadTimeout: 0
   };
+  streamPipeline = promisify(pipeline);
   /**
    * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
    *
@@ -312,28 +335,6 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
       });
     });
   }
-  async handleZipEntry(entry, zipfile, outputDir) {
-    const fullPath = this.processZipEntryPath(outputDir, entry.fileName);
-    if (entry.fileName.endsWith("/")) {
-      await this.createDir(fullPath);
-      return;
-    }
-    await this.createDir(path.dirname(fullPath));
-    return new Promise((response, reject) => {
-      zipfile.openReadStream(entry, (readErr, readStream) => {
-        if (readErr || !readStream) {
-          return reject(
-            new LokaliseError(`Failed to read ZIP entry: ${entry.fileName}`)
-          );
-        }
-        const writeStream = fs.createWriteStream(fullPath);
-        readStream.pipe(writeStream);
-        writeStream.on("finish", response);
-        writeStream.on("error", reject);
-        readStream.on("error", reject);
-      });
-    });
-  }
   /**
    * Downloads a ZIP file from the given URL.
    *
@@ -408,9 +409,57 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
       () => this.apiClient.files().async_download(this.projectId, downloadFileParams)
     );
   }
+  /**
+   * Extracts a single entry from a ZIP archive to the specified output directory.
+   *
+   * Creates necessary directories and streams the file content to disk.
+   *
+   * @param entry - The ZIP entry to extract.
+   * @param zipfile - The open ZIP file instance.
+   * @param outputDir - The directory where the entry should be written.
+   * @returns A promise that resolves when the entry is fully written.
+   */
+  async handleZipEntry(entry, zipfile, outputDir) {
+    const fullPath = this.processZipEntryPath(outputDir, entry.fileName);
+    if (entry.fileName.endsWith("/")) {
+      await this.createDir(fullPath);
+      return;
+    }
+    await this.createDir(path.dirname(fullPath));
+    return new Promise((response, reject) => {
+      zipfile.openReadStream(entry, (readErr, readStream) => {
+        if (readErr || !readStream) {
+          return reject(
+            new LokaliseError(`Failed to read ZIP entry: ${entry.fileName}`)
+          );
+        }
+        const writeStream = fs.createWriteStream(fullPath);
+        readStream.pipe(writeStream);
+        writeStream.on("finish", response);
+        writeStream.on("error", reject);
+        readStream.on("error", reject);
+      });
+    });
+  }
+  /**
+   * Creates a directory and all necessary parent directories.
+   *
+   * @param dir - The directory path to create.
+   * @returns A promise that resolves when the directory is created.
+   */
   async createDir(dir) {
     await fs.promises.mkdir(dir, { recursive: true });
   }
+  /**
+   * Resolves and validates the full output path for a ZIP entry.
+   *
+   * Prevents path traversal attacks by ensuring the resolved path stays within the output directory.
+   *
+   * @param outputDir - The base output directory.
+   * @param entryFilename - The filename of the ZIP entry.
+   * @returns The absolute and safe path to write the entry.
+   * @throws {LokaliseError} If the entry path is detected as malicious.
+   */
   processZipEntryPath(outputDir, entryFilename) {
     const fullPath = path.resolve(outputDir, entryFilename);
     const relative = path.relative(outputDir, fullPath);
@@ -419,6 +468,13 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
     }
     return fullPath;
   }
+  /**
+   * Parses and validates a URL string, ensuring it uses HTTP or HTTPS protocol.
+   *
+   * @param value - The URL string to validate.
+   * @returns A parsed `URL` object if valid.
+   * @throws {LokaliseError} If the URL is invalid or uses an unsupported protocol.
+   */
   assertHttpUrl(value) {
     let parsed;
     try {
@@ -437,7 +493,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
 import fs2 from "node:fs";
 import path2 from "node:path";
 var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
-  maxConcurrentProcesses = 6;
+  static maxConcurrentProcesses = 6;
   static defaultPollingParams = {
     pollStatuses: false,
     pollInitialWaitTime: 1e3,
@@ -563,7 +619,7 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     const queuedProcesses = [];
     const errors = [];
     const fileQueue = [...files];
-    const pool = new Array(this.maxConcurrentProcesses).fill(null).map(
+    const pool = new Array(_LokaliseUpload.maxConcurrentProcesses).fill(null).map(
       () => (async () => {
         while (fileQueue.length > 0) {
           const file = fileQueue.shift();
@@ -590,17 +646,38 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     await Promise.all(pool);
     return { processes: queuedProcesses, errors };
   }
+  /**
+   * Normalizes an array of file extensions by ensuring each starts with a dot and is lowercase.
+   *
+   * @param extensions - The list of file extensions to normalize.
+   * @returns A new array with normalized file extensions.
+   */
   normalizeExtensions(extensions) {
     return extensions.map(
       (ext) => (ext.startsWith(".") ? ext : `.${ext}`).toLowerCase()
     );
   }
+  /**
+   * Determines whether a file should be collected based on its extension and name pattern.
+   *
+   * @param entry - The directory entry to evaluate.
+   * @param normalizedExtensions - List of allowed file extensions.
+   * @param fileNameRegex - Regular expression to match valid filenames.
+   * @returns `true` if the file matches both extension and name pattern, otherwise `false`.
+   */
   shouldCollectFile(entry, normalizedExtensions, fileNameRegex) {
     const fileExt = path2.extname(entry.name).toLowerCase();
     const matchesExtension = normalizedExtensions.includes(".*") || normalizedExtensions.includes(fileExt);
     const matchesFilenamePattern = fileNameRegex.test(entry.name);
     return matchesExtension && matchesFilenamePattern;
   }
+  /**
+   * Creates a regular expression from a given pattern string or RegExp.
+   *
+   * @param fileNamePattern - The filename pattern to convert into a RegExp.
+   * @returns A valid RegExp object.
+   * @throws {Error} If the pattern string is invalid and cannot be compiled.
+   */
   makeFilenameRegexp(fileNamePattern) {
     try {
       return new RegExp(fileNamePattern);
@@ -608,6 +685,13 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
       throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
     }
   }
+  /**
+   * Converts an array of exclude patterns into an array of RegExp objects.
+   *
+   * @param excludePatterns - An array of strings or regular expressions to exclude.
+   * @returns An array of compiled RegExp objects.
+   * @throws {Error} If any pattern is invalid and cannot be compiled.
+   */
   makeExcludeRegExes(excludePatterns) {
     if (excludePatterns.length === 0) {
       return [];
@@ -618,6 +702,14 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
       throw new Error(`Invalid excludePatterns: ${err}`);
     }
   }
+  /**
+   * Safely reads the contents of a directory, returning an empty array if access fails.
+   *
+   * Logs a warning if the directory cannot be read (e.g. due to permissions or non-existence).
+   *
+   * @param dir - The directory path to read.
+   * @returns A promise that resolves to an array of directory entries, or an empty array on failure.
+   */
   async safeReadDir(dir) {
     try {
       return await fs2.promises.readdir(dir, { withFileTypes: true });
@@ -626,12 +718,38 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
       return [];
     }
   }
+  /**
+   * Checks if a file path matches any of the provided exclusion patterns.
+   *
+   * @param filePath - The path of the file to check.
+   * @param excludeRegexes - An array of RegExp patterns to test against.
+   * @returns `true` if the file path matches any exclude pattern, otherwise `false`.
+   */
   shouldExclude(filePath, excludeRegexes) {
     return excludeRegexes.some((regex) => regex.test(filePath));
   }
+  /**
+   * Creates a queue of absolute paths from the provided input directories.
+   *
+   * @param inputDirs - An array of input directory paths (relative or absolute).
+   * @returns An array of resolved absolute directory paths.
+   */
   makeQueue(inputDirs) {
     return [...inputDirs.map((dir) => path2.resolve(dir))];
   }
+  /**
+   * Processes a queue of directories to collect files matching given criteria.
+   *
+   * Recursively reads directories (if enabled), filters files by extension,
+   * filename pattern, and exclusion rules, and collects matching file paths.
+   *
+   * @param queue - The list of directories to process.
+   * @param exts - Allowed file extensions (normalized).
+   * @param nameRx - Regular expression to match valid filenames.
+   * @param excludeRx - Array of exclusion patterns.
+   * @param recursive - Whether to traverse subdirectories.
+   * @returns A promise that resolves to an array of matched file paths.
+   */
   async processCollectionQueue(queue, exts, nameRx, excludeRx, recursive) {
     const found = [];
     while (queue.length) {
@@ -652,6 +770,18 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     }
     return found;
   }
+  /**
+   * Handles a single directory entry during file collection.
+   *
+   * Applies exclusion rules, optionally queues directories for recursion,
+   * and collects files that match the specified extension and filename pattern.
+   *
+   * @param entry - The directory entry to handle.
+   * @param fullPath - The absolute path to the entry.
+   * @param queue - The processing queue for directories.
+   * @param found - The list to store matched file paths.
+   * @param opts - Options including extensions, name pattern, exclusions, and recursion flag.
+   */
   handleEntry(entry, fullPath, queue, found, opts) {
     if (this.shouldExclude(fullPath, opts.excludeRx)) {
       return;

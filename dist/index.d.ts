@@ -125,21 +125,43 @@ declare class LokaliseFileExchange {
      */
     protected pollProcesses(processes: QueuedProcess[], initialWaitTime: number, maxWaitTime: number): Promise<QueuedProcess[]>;
     /**
+     * Determines if a given error is eligible for retry.
+     *
+     * @param error - The error object returned from the Lokalise API.
+     * @returns `true` if the error is retryable, otherwise `false`.
+     */
+    private isRetryable;
+    /**
+     * Retrieves the latest state of a queued process from the API.
+     *
+     * @param processId - The ID of the queued process to fetch.
+     * @returns A promise that resolves to the updated queued process.
+     */
+    private getUpdatedProcess;
+    /**
+     * Validates the required client configuration parameters.
+     *
+     * Checks for a valid `projectId` and ensures that retry parameters
+     * such as `maxRetries` and `initialSleepTime` meet the required conditions.
+     *
+     * @throws {LokaliseError} If `projectId` or `retryParams` is invalid.
+     */
+    private validateParams;
+    /**
      * Pauses execution for the specified number of milliseconds.
      *
      * @param ms - The time to sleep in milliseconds.
      * @returns A promise that resolves after the specified time.
      */
     protected static sleep(ms: number): Promise<void>;
-    private getUpdatedProcess;
 }
 
 /**
  * Handles downloading and extracting translation files from Lokalise.
  */
 declare class LokaliseDownload extends LokaliseFileExchange {
-    private readonly streamPipeline;
     private static readonly defaultProcessParams;
+    private readonly streamPipeline;
     /**
      * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
      *
@@ -155,7 +177,6 @@ declare class LokaliseDownload extends LokaliseFileExchange {
      * @throws {LokaliseError} If extraction fails or malicious paths are detected.
      */
     protected unpackZip(zipFilePath: string, outputDir: string): Promise<void>;
-    private handleZipEntry;
     /**
      * Downloads a ZIP file from the given URL.
      *
@@ -180,8 +201,42 @@ declare class LokaliseDownload extends LokaliseFileExchange {
      * @throws {LokaliseError} If retries are exhausted or an API error occurs.
      */
     protected getTranslationsBundleAsync(downloadFileParams: DownloadFileParams): Promise<QueuedProcess>;
+    /**
+     * Extracts a single entry from a ZIP archive to the specified output directory.
+     *
+     * Creates necessary directories and streams the file content to disk.
+     *
+     * @param entry - The ZIP entry to extract.
+     * @param zipfile - The open ZIP file instance.
+     * @param outputDir - The directory where the entry should be written.
+     * @returns A promise that resolves when the entry is fully written.
+     */
+    private handleZipEntry;
+    /**
+     * Creates a directory and all necessary parent directories.
+     *
+     * @param dir - The directory path to create.
+     * @returns A promise that resolves when the directory is created.
+     */
     private createDir;
+    /**
+     * Resolves and validates the full output path for a ZIP entry.
+     *
+     * Prevents path traversal attacks by ensuring the resolved path stays within the output directory.
+     *
+     * @param outputDir - The base output directory.
+     * @param entryFilename - The filename of the ZIP entry.
+     * @returns The absolute and safe path to write the entry.
+     * @throws {LokaliseError} If the entry path is detected as malicious.
+     */
     private processZipEntryPath;
+    /**
+     * Parses and validates a URL string, ensuring it uses HTTP or HTTPS protocol.
+     *
+     * @param value - The URL string to validate.
+     * @returns A parsed `URL` object if valid.
+     * @throws {LokaliseError} If the URL is invalid or uses an unsupported protocol.
+     */
     private assertHttpUrl;
 }
 
@@ -189,7 +244,7 @@ declare class LokaliseDownload extends LokaliseFileExchange {
  * Handles uploading translation files to Lokalise.
  */
 declare class LokaliseUpload extends LokaliseFileExchange {
-    private readonly maxConcurrentProcesses;
+    private static readonly maxConcurrentProcesses;
     private static readonly defaultPollingParams;
     /**
      * Collects files, uploads them to Lokalise, and optionally polls for process completion, returning both processes and errors.
@@ -230,14 +285,88 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
      */
     private parallelUpload;
+    /**
+     * Normalizes an array of file extensions by ensuring each starts with a dot and is lowercase.
+     *
+     * @param extensions - The list of file extensions to normalize.
+     * @returns A new array with normalized file extensions.
+     */
     private normalizeExtensions;
+    /**
+     * Determines whether a file should be collected based on its extension and name pattern.
+     *
+     * @param entry - The directory entry to evaluate.
+     * @param normalizedExtensions - List of allowed file extensions.
+     * @param fileNameRegex - Regular expression to match valid filenames.
+     * @returns `true` if the file matches both extension and name pattern, otherwise `false`.
+     */
     private shouldCollectFile;
+    /**
+     * Creates a regular expression from a given pattern string or RegExp.
+     *
+     * @param fileNamePattern - The filename pattern to convert into a RegExp.
+     * @returns A valid RegExp object.
+     * @throws {Error} If the pattern string is invalid and cannot be compiled.
+     */
     private makeFilenameRegexp;
+    /**
+     * Converts an array of exclude patterns into an array of RegExp objects.
+     *
+     * @param excludePatterns - An array of strings or regular expressions to exclude.
+     * @returns An array of compiled RegExp objects.
+     * @throws {Error} If any pattern is invalid and cannot be compiled.
+     */
     private makeExcludeRegExes;
+    /**
+     * Safely reads the contents of a directory, returning an empty array if access fails.
+     *
+     * Logs a warning if the directory cannot be read (e.g. due to permissions or non-existence).
+     *
+     * @param dir - The directory path to read.
+     * @returns A promise that resolves to an array of directory entries, or an empty array on failure.
+     */
     private safeReadDir;
+    /**
+     * Checks if a file path matches any of the provided exclusion patterns.
+     *
+     * @param filePath - The path of the file to check.
+     * @param excludeRegexes - An array of RegExp patterns to test against.
+     * @returns `true` if the file path matches any exclude pattern, otherwise `false`.
+     */
     private shouldExclude;
+    /**
+     * Creates a queue of absolute paths from the provided input directories.
+     *
+     * @param inputDirs - An array of input directory paths (relative or absolute).
+     * @returns An array of resolved absolute directory paths.
+     */
     private makeQueue;
+    /**
+     * Processes a queue of directories to collect files matching given criteria.
+     *
+     * Recursively reads directories (if enabled), filters files by extension,
+     * filename pattern, and exclusion rules, and collects matching file paths.
+     *
+     * @param queue - The list of directories to process.
+     * @param exts - Allowed file extensions (normalized).
+     * @param nameRx - Regular expression to match valid filenames.
+     * @param excludeRx - Array of exclusion patterns.
+     * @param recursive - Whether to traverse subdirectories.
+     * @returns A promise that resolves to an array of matched file paths.
+     */
     private processCollectionQueue;
+    /**
+     * Handles a single directory entry during file collection.
+     *
+     * Applies exclusion rules, optionally queues directories for recursion,
+     * and collects files that match the specified extension and filename pattern.
+     *
+     * @param entry - The directory entry to handle.
+     * @param fullPath - The absolute path to the entry.
+     * @param queue - The processing queue for directories.
+     * @param found - The list to store matched file paths.
+     * @param opts - Options including extensions, name pattern, exclusions, and recursion flag.
+     */
     private handleEntry;
 }
 
