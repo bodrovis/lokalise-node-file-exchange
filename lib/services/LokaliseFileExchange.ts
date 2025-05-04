@@ -62,18 +62,12 @@ export class LokaliseFileExchange {
 		clientConfig: ClientParams,
 		{ projectId, useOAuth2 = false, retryParams }: LokaliseExchangeConfig,
 	) {
-		if (!clientConfig.apiKey || typeof clientConfig.apiKey !== "string") {
-			throw new LokaliseError("Invalid or missing API token.");
-		}
 		if (useOAuth2) {
 			this.apiClient = new LokaliseApiOAuth(clientConfig);
 		} else {
 			this.apiClient = new LokaliseApi(clientConfig);
 		}
 
-		if (!projectId || typeof projectId !== "string") {
-			throw new LokaliseError("Invalid or missing Project ID.");
-		}
 		this.projectId = projectId;
 
 		this.retryParams = {
@@ -81,14 +75,7 @@ export class LokaliseFileExchange {
 			...retryParams,
 		};
 
-		if (this.retryParams.maxRetries < 0) {
-			throw new LokaliseError(
-				"maxRetries must be greater than or equal to zero.",
-			);
-		}
-		if (this.retryParams.initialSleepTime <= 0) {
-			throw new LokaliseError("initialSleepTime must be a positive value.");
-		}
+		this.validateParams();
 	}
 
 	/**
@@ -112,10 +99,7 @@ export class LokaliseFileExchange {
 			try {
 				return await operation();
 			} catch (error: unknown) {
-				if (
-					error instanceof LokaliseApiError &&
-					LokaliseFileExchange.RETRYABLE_CODES.includes(error.code)
-				) {
+				if (error instanceof LokaliseApiError && this.isRetryable(error)) {
 					if (attempt === maxRetries + 1) {
 						throw new LokaliseError(
 							`Maximum retries reached: ${error.message ?? "Unknown error"}`,
@@ -136,7 +120,7 @@ export class LokaliseFileExchange {
 		}
 
 		// This line is unreachable but keeps TS happy.
-		// istanbul ignore next
+		/* istanbul ignore next */
 		throw new LokaliseError("Unexpected error during operation.", 500);
 	}
 
@@ -209,15 +193,21 @@ export class LokaliseFileExchange {
 	}
 
 	/**
-	 * Pauses execution for the specified number of milliseconds.
+	 * Determines if a given error is eligible for retry.
 	 *
-	 * @param ms - The time to sleep in milliseconds.
-	 * @returns A promise that resolves after the specified time.
+	 * @param error - The error object returned from the Lokalise API.
+	 * @returns `true` if the error is retryable, otherwise `false`.
 	 */
-	protected static sleep(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms));
+	private isRetryable(error: LokaliseApiError): boolean {
+		return LokaliseFileExchange.RETRYABLE_CODES.includes(error.code);
 	}
 
+	/**
+	 * Retrieves the latest state of a queued process from the API.
+	 *
+	 * @param processId - The ID of the queued process to fetch.
+	 * @returns A promise that resolves to the updated queued process.
+	 */
 	private async getUpdatedProcess(processId: string): Promise<QueuedProcess> {
 		const updatedProcess = await this.apiClient
 			.queuedProcesses()
@@ -228,5 +218,38 @@ export class LokaliseFileExchange {
 		}
 
 		return updatedProcess;
+	}
+
+	/**
+	 * Validates the required client configuration parameters.
+	 *
+	 * Checks for a valid `projectId` and ensures that retry parameters
+	 * such as `maxRetries` and `initialSleepTime` meet the required conditions.
+	 *
+	 * @throws {LokaliseError} If `projectId` or `retryParams` is invalid.
+	 */
+	private validateParams(): void {
+		if (!this.projectId || typeof this.projectId !== "string") {
+			throw new LokaliseError("Invalid or missing Project ID.");
+		}
+
+		if (this.retryParams.maxRetries < 0) {
+			throw new LokaliseError(
+				"maxRetries must be greater than or equal to zero.",
+			);
+		}
+		if (this.retryParams.initialSleepTime <= 0) {
+			throw new LokaliseError("initialSleepTime must be a positive value.");
+		}
+	}
+
+	/**
+	 * Pauses execution for the specified number of milliseconds.
+	 *
+	 * @param ms - The time to sleep in milliseconds.
+	 * @returns A promise that resolves after the specified time.
+	 */
+	protected static sleep(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 }

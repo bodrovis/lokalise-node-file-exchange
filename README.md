@@ -2,9 +2,9 @@
 
 ![npm](https://img.shields.io/npm/v/lokalise-file-exchange)
 ![CI](https://github.com/bodrovis/lokalise-node-file-exchange/actions/workflows/ci.yml/badge.svg)
-[![Code Coverage](https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/test_coverage.svg)](https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange)
+[![Code Coverage][coverage-image]][coverage-url]
 [![NPM Downloads][npm-downloads-image]][npm-downloads-url]
-[![Maintainability](https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/maintainability.svg)](https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange)
+[![Maintainability][maintainability-image]][maintainability-url]
 
 This package enables you to easily exchange translation files between your JavaScript/TypeScript project and [Lokalise TMS](https://lokalise.com).
 
@@ -247,7 +247,7 @@ This attribute provides advanced configuration for the upload process.
 
 #### Inferring language ISO code
 
-Lokalise requires a `lang_iso` parameter for every file. By default, the client infers this from the filename (e.g., `en.json` > `lang_iso: "en"`, `fr_FR.xml` > `lang_iso: "fr_FR"`). If the project lacks the corresponding language, the upload fails.
+Lokalise requires a `lang_iso` parameter for every file. By default, the client infers this from the filename (e.g., `en.json` > `lang_iso: "en"`, `main.fr_FR.xml` > `lang_iso: "fr_FR"`). If the project lacks the corresponding language, the upload fails.
 
 For custom logic, use the `languageInferer` function, which has the signature:  
 `(filePath: string) => Promise<string> | string`. If this function fails or returns an empty string, the filename is used as a language ISO code.
@@ -338,3 +338,7 @@ Licensed under BSD 3 Clause
 
 [npm-downloads-image]: https://badgen.net/npm/dm/lokalise-file-exchange
 [npm-downloads-url]: https://npmcharts.com/compare/lokalise-file-exchange?minimal=true
+[coverage-image]: https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/test_coverage.svg
+[coverage-url]: https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange
+[maintainability-image]: https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/maintainability.svg
+[maintainability-url]: https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange

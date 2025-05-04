@@ -16,7 +16,7 @@ import { LokaliseFileExchange } from "./LokaliseFileExchange.js";
  * Handles uploading translation files to Lokalise.
  */
 export class LokaliseUpload extends LokaliseFileExchange {
-	private readonly maxConcurrentProcesses = 6;
+	private static readonly maxConcurrentProcesses = 6;
 
 	private static readonly defaultPollingParams = {
 		pollStatuses: false,
@@ -173,42 +173,58 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		const errors: FileUploadError[] = [];
 		const fileQueue = [...files];
 
-		const pool = new Array(this.maxConcurrentProcesses).fill(null).map(() =>
-			(async () => {
-				while (fileQueue.length > 0) {
-					const file = fileQueue.shift();
-					if (!file) {
-						break;
-					}
+		const pool = new Array(LokaliseUpload.maxConcurrentProcesses)
+			.fill(null)
+			.map(() =>
+				(async () => {
+					while (fileQueue.length > 0) {
+						const file = fileQueue.shift();
+						if (!file) {
+							break;
+						}
 
-					try {
-						const processedFileParams = await this.processFile(
-							file,
-							projectRoot,
-							processParams,
-						);
-						const queuedProcess = await this.uploadSingleFile({
-							...baseUploadFileParams,
-							...processedFileParams,
-						});
-						queuedProcesses.push(queuedProcess);
-					} catch (error) {
-						errors.push({ file, error });
+						try {
+							const processedFileParams = await this.processFile(
+								file,
+								projectRoot,
+								processParams,
+							);
+							const queuedProcess = await this.uploadSingleFile({
+								...baseUploadFileParams,
+								...processedFileParams,
+							});
+							queuedProcesses.push(queuedProcess);
+						} catch (error) {
+							errors.push({ file, error });
+						}
 					}
-				}
-			})(),
-		);
+				})(),
+			);
 
 		await Promise.all(pool);
 		return { processes: queuedProcesses, errors };
 	}
 
+	/**
+	 * Normalizes an array of file extensions by ensuring each starts with a dot and is lowercase.
+	 *
+	 * @param extensions - The list of file extensions to normalize.
+	 * @returns A new array with normalized file extensions.
+	 */
 	private normalizeExtensions(extensions: string[]): string[] {
 		return extensions.map((ext) =>
 			(ext.startsWith(".") ? ext : `.${ext}`).toLowerCase(),
 		);
 	}
 
+	/**
+	 * Determines whether a file should be collected based on its extension and name pattern.
+	 *
+	 * @param entry - The directory entry to evaluate.
+	 * @param normalizedExtensions - List of allowed file extensions.
+	 * @param fileNameRegex - Regular expression to match valid filenames.
+	 * @returns `true` if the file matches both extension and name pattern, otherwise `false`.
+	 */
 	private shouldCollectFile(
 		entry: fs.Dirent,
 		normalizedExtensions: string[],
@@ -223,6 +239,13 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		return matchesExtension && matchesFilenamePattern;
 	}
 
+	/**
+	 * Creates a regular expression from a given pattern string or RegExp.
+	 *
+	 * @param fileNamePattern - The filename pattern to convert into a RegExp.
+	 * @returns A valid RegExp object.
+	 * @throws {Error} If the pattern string is invalid and cannot be compiled.
+	 */
 	private makeFilenameRegexp(fileNamePattern: string | RegExp): RegExp {
 		try {
 			return new RegExp(fileNamePattern);
@@ -231,6 +254,13 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		}
 	}
 
+	/**
+	 * Converts an array of exclude patterns into an array of RegExp objects.
+	 *
+	 * @param excludePatterns - An array of strings or regular expressions to exclude.
+	 * @returns An array of compiled RegExp objects.
+	 * @throws {Error} If any pattern is invalid and cannot be compiled.
+	 */
 	private makeExcludeRegExes(excludePatterns: string[] | RegExp[]): RegExp[] {
 		if (excludePatterns.length === 0) {
 			return [];
@@ -242,6 +272,14 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		}
 	}
 
+	/**
+	 * Safely reads the contents of a directory, returning an empty array if access fails.
+	 *
+	 * Logs a warning if the directory cannot be read (e.g. due to permissions or non-existence).
+	 *
+	 * @param dir - The directory path to read.
+	 * @returns A promise that resolves to an array of directory entries, or an empty array on failure.
+	 */
 	private async safeReadDir(dir: string): Promise<fs.Dirent[]> {
 		try {
 			return await fs.promises.readdir(dir, { withFileTypes: true });
@@ -251,14 +289,40 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		}
 	}
 
+	/**
+	 * Checks if a file path matches any of the provided exclusion patterns.
+	 *
+	 * @param filePath - The path of the file to check.
+	 * @param excludeRegexes - An array of RegExp patterns to test against.
+	 * @returns `true` if the file path matches any exclude pattern, otherwise `false`.
+	 */
 	private shouldExclude(filePath: string, excludeRegexes: RegExp[]): boolean {
 		return excludeRegexes.some((regex) => regex.test(filePath));
 	}
 
+	/**
+	 * Creates a queue of absolute paths from the provided input directories.
+	 *
+	 * @param inputDirs - An array of input directory paths (relative or absolute).
+	 * @returns An array of resolved absolute directory paths.
+	 */
 	private makeQueue(inputDirs: string[]): string[] {
 		return [...inputDirs.map((dir) => path.resolve(dir))];
 	}
 
+	/**
+	 * Processes a queue of directories to collect files matching given criteria.
+	 *
+	 * Recursively reads directories (if enabled), filters files by extension,
+	 * filename pattern, and exclusion rules, and collects matching file paths.
+	 *
+	 * @param queue - The list of directories to process.
+	 * @param exts - Allowed file extensions (normalized).
+	 * @param nameRx - Regular expression to match valid filenames.
+	 * @param excludeRx - Array of exclusion patterns.
+	 * @param recursive - Whether to traverse subdirectories.
+	 * @returns A promise that resolves to an array of matched file paths.
+	 */
 	private async processCollectionQueue(
 		queue: string[],
 		exts: string[],
@@ -288,6 +352,18 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		return found;
 	}
 
+	/**
+	 * Handles a single directory entry during file collection.
+	 *
+	 * Applies exclusion rules, optionally queues directories for recursion,
+	 * and collects files that match the specified extension and filename pattern.
+	 *
+	 * @param entry - The directory entry to handle.
+	 * @param fullPath - The absolute path to the entry.
+	 * @param queue - The processing queue for directories.
+	 * @param found - The list to store matched file paths.
+	 * @param opts - Options including extensions, name pattern, exclusions, and recursion flag.
+	 */
 	private handleEntry(
 		entry: fs.Dirent,
 		fullPath: string,

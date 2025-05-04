@@ -18,13 +18,14 @@ import { LokaliseFileExchange } from "./LokaliseFileExchange.js";
  * Handles downloading and extracting translation files from Lokalise.
  */
 export class LokaliseDownload extends LokaliseFileExchange {
-	private readonly streamPipeline = promisify(pipeline);
 	private static readonly defaultProcessParams = {
 		asyncDownload: false,
 		pollInitialWaitTime: 1000,
 		pollMaximumWaitTime: 120_000,
 		bundleDownloadTimeout: 0,
 	};
+
+	private readonly streamPipeline = promisify(pipeline);
 
 	/**
 	 * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
@@ -133,38 +134,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		});
 	}
 
-	private async handleZipEntry(
-		entry: yauzl.Entry,
-		zipfile: yauzl.ZipFile,
-		outputDir: string,
-	): Promise<void> {
-		const fullPath = this.processZipEntryPath(outputDir, entry.fileName);
-
-		if (entry.fileName.endsWith("/")) {
-			// it's a directory
-			await this.createDir(fullPath);
-			return;
-		}
-
-		await this.createDir(path.dirname(fullPath));
-
-		return new Promise((response, reject) => {
-			zipfile.openReadStream(entry, (readErr, readStream) => {
-				if (readErr || !readStream) {
-					return reject(
-						new LokaliseError(`Failed to read ZIP entry: ${entry.fileName}`),
-					);
-				}
-
-				const writeStream = fs.createWriteStream(fullPath);
-				readStream.pipe(writeStream);
-				writeStream.on("finish", response);
-				writeStream.on("error", reject);
-				readStream.on("error", reject);
-			});
-		});
-	}
-
 	/**
 	 * Downloads a ZIP file from the given URL.
 	 *
@@ -258,10 +227,68 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		);
 	}
 
+	/**
+	 * Extracts a single entry from a ZIP archive to the specified output directory.
+	 *
+	 * Creates necessary directories and streams the file content to disk.
+	 *
+	 * @param entry - The ZIP entry to extract.
+	 * @param zipfile - The open ZIP file instance.
+	 * @param outputDir - The directory where the entry should be written.
+	 * @returns A promise that resolves when the entry is fully written.
+	 */
+	private async handleZipEntry(
+		entry: yauzl.Entry,
+		zipfile: yauzl.ZipFile,
+		outputDir: string,
+	): Promise<void> {
+		const fullPath = this.processZipEntryPath(outputDir, entry.fileName);
+
+		if (entry.fileName.endsWith("/")) {
+			// it's a directory
+			await this.createDir(fullPath);
+			return;
+		}
+
+		await this.createDir(path.dirname(fullPath));
+
+		return new Promise((response, reject) => {
+			zipfile.openReadStream(entry, (readErr, readStream) => {
+				if (readErr || !readStream) {
+					return reject(
+						new LokaliseError(`Failed to read ZIP entry: ${entry.fileName}`),
+					);
+				}
+
+				const writeStream = fs.createWriteStream(fullPath);
+				readStream.pipe(writeStream);
+				writeStream.on("finish", response);
+				writeStream.on("error", reject);
+				readStream.on("error", reject);
+			});
+		});
+	}
+
+	/**
+	 * Creates a directory and all necessary parent directories.
+	 *
+	 * @param dir - The directory path to create.
+	 * @returns A promise that resolves when the directory is created.
+	 */
 	private async createDir(dir: string): Promise<void> {
 		await fs.promises.mkdir(dir, { recursive: true });
 	}
 
+	/**
+	 * Resolves and validates the full output path for a ZIP entry.
+	 *
+	 * Prevents path traversal attacks by ensuring the resolved path stays within the output directory.
+	 *
+	 * @param outputDir - The base output directory.
+	 * @param entryFilename - The filename of the ZIP entry.
+	 * @returns The absolute and safe path to write the entry.
+	 * @throws {LokaliseError} If the entry path is detected as malicious.
+	 */
 	private processZipEntryPath(
 		outputDir: string,
 		entryFilename: string,
@@ -276,6 +303,13 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		return fullPath;
 	}
 
+	/**
+	 * Parses and validates a URL string, ensuring it uses HTTP or HTTPS protocol.
+	 *
+	 * @param value - The URL string to validate.
+	 * @returns A parsed `URL` object if valid.
+	 * @throws {LokaliseError} If the URL is invalid or uses an unsupported protocol.
+	 */
 	private assertHttpUrl(value: string): URL {
 		let parsed: URL;
 		try {

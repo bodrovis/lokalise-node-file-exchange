@@ -32,7 +32,9 @@ describe("LokaliseFileExchange", () => {
 			it("should throw an error if the API key is not provided", () => {
 				expect(() => {
 					new LokaliseFileExchange({ apiKey: "" }, { projectId: "123.abc" });
-				}).toThrow("Invalid or missing API token.");
+				}).toThrow(
+					"Instantiation failed: A non-empty API key or JWT must be provided.",
+				);
 			});
 
 			it("should throw an error if the API key is not a string", () => {
@@ -43,7 +45,9 @@ describe("LokaliseFileExchange", () => {
 						},
 						{ projectId: "123.abc" },
 					);
-				}).toThrow("Invalid or missing API token.");
+				}).toThrow(
+					"Instantiation failed: A non-empty API key or JWT must be provided.",
+				);
 			});
 		});
 

@@ -21,13 +21,15 @@
 		"test": "vitest run",
 		"lint": "npx @biomejs/biome check ./",
 		"lint:fix": "npx @biomejs/biome check --write ./",
-		"lint:fix:unsafe": "npx @biomejs/biome check --write --unsafe ./"
+		"lint:fix:unsafe": "npx @biomejs/biome check --write --unsafe ./",
+		"format": "npx @biomejs/biome format ./",
+		"format:fix": "npx @biomejs/biome format ./"
 	},
 	"publishConfig": {
 		"access": "public"
 	},
 	"dependencies": {
-		"@lokalise/node-api": "^14.3.0",
+		"@lokalise/node-api": "^14.5.1",
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {
