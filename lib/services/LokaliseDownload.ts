@@ -71,7 +71,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				)
 			)[0];
 
-			this.logMsg("debug", `Download process status is ${completedProcess}`);
+			this.logMsg("debug", `Download process status is ${completedProcess.status}`);
 
 			if (completedProcess.status === "finished") {
 				const completedProcessDetails =
@@ -112,6 +112,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			await this.unpackZip(zipFilePath, unpackTo);
 
 			this.logMsg("debug", "Translations unpacked!");
+			this.logMsg("debug", "Download successful!");
 		} finally {
 			this.logMsg("debug", `Removing temp archive from ${zipFilePath}`);
 			await fs.promises.unlink(zipFilePath);

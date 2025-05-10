@@ -72,6 +72,8 @@ export class LokaliseUpload extends LokaliseFileExchange {
 			this.logMsg("debug", "Polling completed!");
 		}
 
+		this.logMsg("debug", "Upload successful!");
+
 		return { processes: completedProcesses, errors };
 	}
 

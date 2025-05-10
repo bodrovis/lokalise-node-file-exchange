@@ -347,7 +347,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
         pollInitialWaitTime,
         pollMaximumWaitTime
       ))[0];
-      this.logMsg("debug", `Download process status is ${completedProcess}`);
+      this.logMsg("debug", `Download process status is ${completedProcess.status}`);
       if (completedProcess.status === "finished") {
         const completedProcessDetails = completedProcess.details;
         translationsBundleURL = completedProcessDetails.download_url;
@@ -378,6 +378,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
     try {
       await this.unpackZip(zipFilePath, unpackTo);
       this.logMsg("debug", "Translations unpacked!");
+      this.logMsg("debug", "Download successful!");
     } finally {
       this.logMsg("debug", `Removing temp archive from ${zipFilePath}`);
       await fs.promises.unlink(zipFilePath);
@@ -618,6 +619,7 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
       );
       this.logMsg("debug", "Polling completed!");
     }
+    this.logMsg("debug", "Upload successful!");
     return { processes: completedProcesses, errors };
   }
   /**
