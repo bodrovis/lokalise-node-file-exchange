@@ -35,13 +35,18 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		collectFileParams,
 		processUploadFileParams,
 	}: UploadTranslationParams = {}): Promise<QueuedUploadProcessesWithErrors> {
+		this.logMsg("debug", "Uploading translations to Lokalise...");
+
 		const { pollStatuses, pollInitialWaitTime, pollMaximumWaitTime } = {
 			...LokaliseUpload.defaultPollingParams,
 			...processUploadFileParams,
 		};
 
+		this.logMsg("debug", "Collecting files to upload...");
 		const collectedFiles = await this.collectFiles(collectFileParams);
+		this.logMsg("debug", "Collected files:", collectedFiles);
 
+		this.logMsg("debug", "Performing parallel upload...");
 		const { processes, errors } = await this.parallelUpload(
 			collectedFiles,
 			uploadFileParams,
@@ -49,13 +54,22 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		);
 
 		let completedProcesses = processes;
+		this.logMsg(
+			"debug",
+			"File uploading queued! IDs:",
+			completedProcesses.map((p) => p.process_id),
+		);
 
 		if (pollStatuses) {
+			this.logMsg("debug", "Polling queued processes...");
+
 			completedProcesses = await this.pollProcesses(
 				processes,
 				pollInitialWaitTime,
 				pollMaximumWaitTime,
 			);
+
+			this.logMsg("debug", "Polling completed!");
 		}
 
 		return { processes: completedProcesses, errors };
@@ -284,7 +298,7 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		try {
 			return await fs.promises.readdir(dir, { withFileTypes: true });
 		} catch {
-			console.warn(`Skipping inaccessible directory: ${dir}`);
+			this.logMsg("warn", `Skipping inaccessible directory: ${dir}...`);
 			return [];
 		}
 	}

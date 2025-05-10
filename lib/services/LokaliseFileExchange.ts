@@ -4,6 +4,13 @@ import {
 	LokaliseApiOAuth,
 } from "@lokalise/node-api";
 import type { ClientParams, QueuedProcess } from "@lokalise/node-api";
+import {
+	type LogFunction,
+	type LogLevel,
+	type LogThreshold,
+	logWithColor,
+	logWithLevel,
+} from "kliedz";
 import { LokaliseError } from "../errors/LokaliseError.js";
 import type {
 	LokaliseExchangeConfig,
@@ -17,7 +24,7 @@ export class LokaliseFileExchange {
 	/**
 	 * The Lokalise API client instance.
 	 */
-	public readonly apiClient: LokaliseApi;
+	protected readonly apiClient: LokaliseApi;
 
 	/**
 	 * The ID of the project in Lokalise.
@@ -28,6 +35,16 @@ export class LokaliseFileExchange {
 	 * Retry parameters for API requests.
 	 */
 	protected readonly retryParams: RetryParams;
+
+	/**
+	 * Logger function.
+	 */
+	protected readonly logger: LogFunction;
+
+	/**
+	 * Log threshold (do not print messages with severity less than the specified value).
+	 */
+	protected readonly logThreshold: LogThreshold;
 
 	/**
 	 * Default retry parameters for API requests.
@@ -60,12 +77,37 @@ export class LokaliseFileExchange {
 	 */
 	constructor(
 		clientConfig: ClientParams,
-		{ projectId, useOAuth2 = false, retryParams }: LokaliseExchangeConfig,
+		{
+			projectId,
+			useOAuth2 = false,
+			retryParams,
+			logThreshold = "info",
+			logColor = true,
+		}: LokaliseExchangeConfig,
 	) {
-		if (useOAuth2) {
-			this.apiClient = new LokaliseApiOAuth(clientConfig);
+		if (logColor) {
+			this.logger = logWithColor;
 		} else {
-			this.apiClient = new LokaliseApi(clientConfig);
+			this.logger = logWithLevel;
+		}
+
+		this.logThreshold = logThreshold;
+
+		let lokaliseApiConfig = clientConfig;
+
+		if (logThreshold === "silent") {
+			lokaliseApiConfig = {
+				silent: true,
+				...lokaliseApiConfig,
+			};
+		}
+
+		if (useOAuth2) {
+			this.logMsg("debug", "Using OAuth 2 Lokalise API client");
+			this.apiClient = new LokaliseApiOAuth(lokaliseApiConfig);
+		} else {
+			this.logMsg("debug", "Using regular (token-based) Lokalise API client");
+			this.apiClient = new LokaliseApi(lokaliseApiConfig);
 		}
 
 		this.projectId = projectId;
@@ -94,12 +136,20 @@ export class LokaliseFileExchange {
 		operation: () => Promise<T>,
 	): Promise<T> {
 		const { maxRetries, initialSleepTime } = this.retryParams;
+		this.logMsg(
+			"debug",
+			`Running operation with exponential backoff; max retries: ${maxRetries}`,
+		);
 
 		for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
 			try {
+				this.logMsg("debug", `Attempt #${attempt}...`);
+
 				return await operation();
 			} catch (error: unknown) {
 				if (error instanceof LokaliseApiError && this.isRetryable(error)) {
+					this.logMsg("debug", `Retryable error caught: ${error.message}`);
+
 					if (attempt === maxRetries + 1) {
 						throw new LokaliseError(
 							`Maximum retries reached: ${error.message ?? "Unknown error"}`,
@@ -108,9 +158,9 @@ export class LokaliseFileExchange {
 						);
 					}
 
-					await LokaliseFileExchange.sleep(
-						initialSleepTime * 2 ** (attempt - 1),
-					);
+					const backoff = initialSleepTime * 2 ** (attempt - 1);
+					this.logMsg("debug", `Waiting ${backoff}ms before retry...`);
+					await LokaliseFileExchange.sleep(backoff);
 				} else if (error instanceof LokaliseApiError) {
 					throw new LokaliseError(error.message, error.code, error.details);
 				} else {
@@ -137,6 +187,11 @@ export class LokaliseFileExchange {
 		initialWaitTime: number,
 		maxWaitTime: number,
 	): Promise<QueuedProcess[]> {
+		this.logMsg(
+			"debug",
+			`Start polling processes. Total processes count: ${processes.length}`,
+		);
+
 		const startTime = Date.now();
 		let waitTime = initialWaitTime;
 
@@ -158,6 +213,8 @@ export class LokaliseFileExchange {
 		}
 
 		while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
+			this.logMsg("debug", `Polling... Pending IDs: ${pendingProcessIds.size}`);
+
 			await Promise.all(
 				[...pendingProcessIds].map(async (processId) => {
 					try {
@@ -170,10 +227,11 @@ export class LokaliseFileExchange {
 								updatedProcess.status,
 							)
 						) {
+							this.logMsg("debug", `Process ${processId} completed.`);
 							pendingProcessIds.delete(processId);
 						}
-					} catch (_error) {
-						// console.warn(`Failed to fetch process ${processId}:`, error);
+					} catch (error) {
+						this.logMsg("warn", `Failed to fetch process ${processId}:`, error);
 					}
 				}),
 			);
@@ -182,9 +240,14 @@ export class LokaliseFileExchange {
 				pendingProcessIds.size === 0 ||
 				Date.now() - startTime >= maxWaitTime
 			) {
+				this.logMsg(
+					"debug",
+					`Finished polling. Pending processes IDs: ${pendingProcessIds.size}`,
+				);
 				break;
 			}
 
+			this.logMsg("debug", `Waiting ${waitTime}...`);
 			await LokaliseFileExchange.sleep(waitTime);
 			waitTime = Math.min(waitTime * 2, maxWaitTime - (Date.now() - startTime));
 		}
@@ -200,6 +263,19 @@ export class LokaliseFileExchange {
 	 */
 	private isRetryable(error: LokaliseApiError): boolean {
 		return LokaliseFileExchange.RETRYABLE_CODES.includes(error.code);
+	}
+
+	/**
+	 * Logs a message with a specified level and the current threshold.
+	 *
+	 * @param level - Severity level of the message (e.g. "info", "error").
+	 * @param args - Values to log. Strings, objects, errors, etc.
+	 */
+	protected logMsg(level: LogLevel, ...args: unknown[]): void {
+		this.logger(
+			{ level, threshold: this.logThreshold, withTimestamp: true },
+			...args,
+		);
 	}
 
 	/**

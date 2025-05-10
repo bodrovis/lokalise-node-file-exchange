@@ -1,4 +1,5 @@
 import { DownloadFileParams, UploadFileParams, QueuedProcess, LokaliseApi, ClientParams, DownloadBundle } from '@lokalise/node-api';
+import { LogThreshold, LogFunction, LogLevel } from 'kliedz';
 
 interface CollectFileParams {
     inputDirs?: string[];
@@ -34,6 +35,8 @@ interface LokaliseExchangeConfig {
     projectId: string;
     useOAuth2?: boolean;
     retryParams?: Partial<RetryParams>;
+    logThreshold?: LogThreshold;
+    logColor?: boolean;
 }
 
 type Inferer = (filePath: string) => Promise<string> | string;
@@ -78,7 +81,7 @@ declare class LokaliseFileExchange {
     /**
      * The Lokalise API client instance.
      */
-    readonly apiClient: LokaliseApi;
+    protected readonly apiClient: LokaliseApi;
     /**
      * The ID of the project in Lokalise.
      */
@@ -87,6 +90,14 @@ declare class LokaliseFileExchange {
      * Retry parameters for API requests.
      */
     protected readonly retryParams: RetryParams;
+    /**
+     * Logger function.
+     */
+    protected readonly logger: LogFunction;
+    /**
+     * Log threshold (do not print messages with severity less than the specified value).
+     */
+    protected readonly logThreshold: LogThreshold;
     /**
      * Default retry parameters for API requests.
      */
@@ -101,7 +112,7 @@ declare class LokaliseFileExchange {
      * @param exchangeConfig - The configuration object for file exchange operations.
      * @throws {LokaliseError} If the provided configuration is invalid.
      */
-    constructor(clientConfig: ClientParams, { projectId, useOAuth2, retryParams }: LokaliseExchangeConfig);
+    constructor(clientConfig: ClientParams, { projectId, useOAuth2, retryParams, logThreshold, logColor, }: LokaliseExchangeConfig);
     /**
      * Executes an asynchronous operation with exponential backoff retry logic.
      *
@@ -131,6 +142,13 @@ declare class LokaliseFileExchange {
      * @returns `true` if the error is retryable, otherwise `false`.
      */
     private isRetryable;
+    /**
+     * Logs a message with a specified level and the current threshold.
+     *
+     * @param level - Severity level of the message (e.g. "info", "error").
+     * @param args - Values to log. Strings, objects, errors, etc.
+     */
+    protected logMsg(level: LogLevel, ...args: unknown[]): void;
     /**
      * Retrieves the latest state of a queued process from the API.
      *

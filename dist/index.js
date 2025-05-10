@@ -52,6 +52,10 @@ import {
   ApiError as LokaliseApiError,
   LokaliseApiOAuth
 } from "@lokalise/node-api";
+import {
+  logWithColor,
+  logWithLevel
+} from "kliedz";
 var LokaliseFileExchange = class _LokaliseFileExchange {
   /**
    * The Lokalise API client instance.
@@ -65,6 +69,14 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    * Retry parameters for API requests.
    */
   retryParams;
+  /**
+   * Logger function.
+   */
+  logger;
+  /**
+   * Log threshold (do not print messages with severity less than the specified value).
+   */
+  logThreshold;
   /**
    * Default retry parameters for API requests.
    */
@@ -91,11 +103,32 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    * @param exchangeConfig - The configuration object for file exchange operations.
    * @throws {LokaliseError} If the provided configuration is invalid.
    */
-  constructor(clientConfig, { projectId, useOAuth2 = false, retryParams }) {
-    if (useOAuth2) {
-      this.apiClient = new LokaliseApiOAuth(clientConfig);
+  constructor(clientConfig, {
+    projectId,
+    useOAuth2 = false,
+    retryParams,
+    logThreshold = "info",
+    logColor = true
+  }) {
+    if (logColor) {
+      this.logger = logWithColor;
     } else {
-      this.apiClient = new LokaliseApi(clientConfig);
+      this.logger = logWithLevel;
+    }
+    this.logThreshold = logThreshold;
+    let lokaliseApiConfig = clientConfig;
+    if (logThreshold === "silent") {
+      lokaliseApiConfig = {
+        silent: true,
+        ...lokaliseApiConfig
+      };
+    }
+    if (useOAuth2) {
+      this.logMsg("debug", "Using OAuth 2 Lokalise API client");
+      this.apiClient = new LokaliseApiOAuth(lokaliseApiConfig);
+    } else {
+      this.logMsg("debug", "Using regular (token-based) Lokalise API client");
+      this.apiClient = new LokaliseApi(lokaliseApiConfig);
     }
     this.projectId = projectId;
     this.retryParams = {
@@ -118,11 +151,17 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    */
   async withExponentialBackoff(operation) {
     const { maxRetries, initialSleepTime } = this.retryParams;
+    this.logMsg(
+      "debug",
+      `Running operation with exponential backoff; max retries: ${maxRetries}`
+    );
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       try {
+        this.logMsg("debug", `Attempt #${attempt}...`);
         return await operation();
       } catch (error) {
         if (error instanceof LokaliseApiError && this.isRetryable(error)) {
+          this.logMsg("debug", `Retryable error caught: ${error.message}`);
           if (attempt === maxRetries + 1) {
             throw new LokaliseError(
               `Maximum retries reached: ${error.message ?? "Unknown error"}`,
@@ -130,9 +169,9 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
               error.details
             );
           }
-          await _LokaliseFileExchange.sleep(
-            initialSleepTime * 2 ** (attempt - 1)
-          );
+          const backoff = initialSleepTime * 2 ** (attempt - 1);
+          this.logMsg("debug", `Waiting ${backoff}ms before retry...`);
+          await _LokaliseFileExchange.sleep(backoff);
         } else if (error instanceof LokaliseApiError) {
           throw new LokaliseError(error.message, error.code, error.details);
         } else {
@@ -151,6 +190,10 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
    */
   async pollProcesses(processes, initialWaitTime, maxWaitTime) {
+    this.logMsg(
+      "debug",
+      `Start polling processes. Total processes count: ${processes.length}`
+    );
     const startTime = Date.now();
     let waitTime = initialWaitTime;
     const processMap = /* @__PURE__ */ new Map();
@@ -165,6 +208,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
       }
     }
     while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
+      this.logMsg("debug", `Polling... Pending IDs: ${pendingProcessIds.size}`);
       await Promise.all(
         [...pendingProcessIds].map(async (processId) => {
           try {
@@ -173,15 +217,22 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
             if (_LokaliseFileExchange.FINISHED_STATUSES.includes(
               updatedProcess.status
             )) {
+              this.logMsg("debug", `Process ${processId} completed.`);
               pendingProcessIds.delete(processId);
             }
-          } catch (_error) {
+          } catch (error) {
+            this.logMsg("warn", `Failed to fetch process ${processId}:`, error);
           }
         })
       );
       if (pendingProcessIds.size === 0 || Date.now() - startTime >= maxWaitTime) {
+        this.logMsg(
+          "debug",
+          `Finished polling. Pending processes IDs: ${pendingProcessIds.size}`
+        );
         break;
       }
+      this.logMsg("debug", `Waiting ${waitTime}...`);
       await _LokaliseFileExchange.sleep(waitTime);
       waitTime = Math.min(waitTime * 2, maxWaitTime - (Date.now() - startTime));
     }
@@ -195,6 +246,18 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    */
   isRetryable(error) {
     return _LokaliseFileExchange.RETRYABLE_CODES.includes(error.code);
+  }
+  /**
+   * Logs a message with a specified level and the current threshold.
+   *
+   * @param level - Severity level of the message (e.g. "info", "error").
+   * @param args - Values to log. Strings, objects, errors, etc.
+   */
+  logMsg(level, ...args) {
+    this.logger(
+      { level, threshold: this.logThreshold, withTimestamp: true },
+      ...args
+    );
   }
   /**
    * Retrieves the latest state of a queued process from the API.
@@ -261,6 +324,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
     extractParams = {},
     processDownloadFileParams
   }) {
+    this.logMsg("debug", "Downloading translations from Lokalise...");
     const {
       asyncDownload,
       pollInitialWaitTime,
@@ -272,12 +336,18 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
     };
     let translationsBundleURL;
     if (asyncDownload) {
+      this.logMsg("debug", "Async download mode enabled.");
       const downloadProcess = await this.getTranslationsBundleAsync(downloadFileParams);
+      this.logMsg(
+        "debug",
+        `Waiting for download process ID ${downloadProcess.process_id} to complete...`
+      );
       const completedProcess = (await this.pollProcesses(
         [downloadProcess],
         pollInitialWaitTime,
         pollMaximumWaitTime
       ))[0];
+      this.logMsg("debug", `Download process status is ${completedProcess}`);
       if (completedProcess.status === "finished") {
         const completedProcessDetails = completedProcess.details;
         translationsBundleURL = completedProcessDetails.download_url;
@@ -288,19 +358,28 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
         );
       }
     } else {
+      this.logMsg("debug", "Async download mode disabled.");
       const translationsBundle = await this.getTranslationsBundle(downloadFileParams);
       translationsBundleURL = translationsBundle.bundle_url;
     }
+    this.logMsg(
+      "debug",
+      `Downloading translation bundle from ${translationsBundleURL}`
+    );
     const zipFilePath = await this.downloadZip(
       translationsBundleURL,
       bundleDownloadTimeout
     );
+    const unpackTo = path.resolve(extractParams.outputDir ?? "./");
+    this.logMsg(
+      "debug",
+      `Unpacking translations from ${zipFilePath} to ${unpackTo}`
+    );
     try {
-      await this.unpackZip(
-        zipFilePath,
-        path.resolve(extractParams.outputDir ?? "./")
-      );
+      await this.unpackZip(zipFilePath, unpackTo);
+      this.logMsg("debug", "Translations unpacked!");
     } finally {
+      this.logMsg("debug", `Removing temp archive from ${zipFilePath}`);
       await fs.promises.unlink(zipFilePath);
     }
   }
@@ -510,23 +589,34 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     collectFileParams,
     processUploadFileParams
   } = {}) {
+    this.logMsg("debug", "Uploading translations to Lokalise...");
     const { pollStatuses, pollInitialWaitTime, pollMaximumWaitTime } = {
       ..._LokaliseUpload.defaultPollingParams,
       ...processUploadFileParams
     };
+    this.logMsg("debug", "Collecting files to upload...");
     const collectedFiles = await this.collectFiles(collectFileParams);
+    this.logMsg("debug", "Collected files:", collectedFiles);
+    this.logMsg("debug", "Performing parallel upload...");
     const { processes, errors } = await this.parallelUpload(
       collectedFiles,
       uploadFileParams,
       processUploadFileParams
     );
     let completedProcesses = processes;
+    this.logMsg(
+      "debug",
+      "File uploading queued! IDs:",
+      completedProcesses.map((p) => p.process_id)
+    );
     if (pollStatuses) {
+      this.logMsg("debug", "Polling queued processes...");
       completedProcesses = await this.pollProcesses(
         processes,
         pollInitialWaitTime,
         pollMaximumWaitTime
       );
+      this.logMsg("debug", "Polling completed!");
     }
     return { processes: completedProcesses, errors };
   }
@@ -714,7 +804,7 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     try {
       return await fs2.promises.readdir(dir, { withFileTypes: true });
     } catch {
-      console.warn(`Skipping inaccessible directory: ${dir}`);
+      this.logMsg("warn", `Skipping inaccessible directory: ${dir}...`);
       return [];
     }
   }

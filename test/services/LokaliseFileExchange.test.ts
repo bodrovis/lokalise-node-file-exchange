@@ -1,29 +1,57 @@
 import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
+import { type LogFunction, logWithColor, logWithLevel } from "kliedz";
 import { LokaliseFileExchange } from "../../lib/services/LokaliseFileExchange.js";
+import { FakeLokaliseFileExchange } from "../fixtures/fake_classes/FakeLokaliseExchange.js";
 import { describe, expect, it } from "../setup.js";
 
 describe("LokaliseFileExchange", () => {
 	describe("Instance Creation", () => {
 		it("should create an instance with valid parameters", () => {
-			const exchange = new LokaliseFileExchange(
+			const exchange = new FakeLokaliseFileExchange(
 				{
 					apiKey: "abc123",
 				},
 				{ projectId: "123.abc" },
 			);
 			expect(exchange).toBeInstanceOf(LokaliseFileExchange);
-			expect(exchange.apiClient).toBeInstanceOf(LokaliseApi);
+			expect(exchange.getApiClient()).toBeInstanceOf(LokaliseApi);
+			expect(exchange.getLogger()).toEqual(logWithColor);
+			expect(exchange.getLogThreshold()).toEqual("info");
 		});
 
-		it("should create an OAuth2-based instance with valid parameters", () => {
-			const exchange = new LokaliseFileExchange(
+		it("should create an OAuth2-based FakeLokaliseFileExchange with valid parameters", () => {
+			const exchange = new FakeLokaliseFileExchange(
 				{
 					apiKey: "abc123",
 				},
 				{ projectId: "123.abc", useOAuth2: true },
 			);
 			expect(exchange).toBeInstanceOf(LokaliseFileExchange);
-			expect(exchange.apiClient).toBeInstanceOf(LokaliseApiOAuth);
+			expect(exchange.getApiClient()).toBeInstanceOf(LokaliseApiOAuth);
+		});
+
+		it("should create a logger without colors", () => {
+			const exchange = new FakeLokaliseFileExchange(
+				{
+					apiKey: "abc123",
+				},
+				{ projectId: "123.abc", logColor: false },
+			);
+
+			expect(exchange.getLogger()).toEqual(logWithLevel);
+		});
+
+		it("should support silent mode", () => {
+			const exchange = new FakeLokaliseFileExchange(
+				{
+					apiKey: "abc123",
+				},
+				{ projectId: "123.abc", logThreshold: "silent" },
+			);
+
+			expect(exchange.getLogger()).toEqual(logWithColor);
+			expect(exchange.getApiClient().clientData.silent).toBe(true);
+			expect(exchange.getLogThreshold()).toEqual("silent");
 		});
 	});
 

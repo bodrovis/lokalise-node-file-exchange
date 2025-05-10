@@ -38,6 +38,8 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		extractParams = {},
 		processDownloadFileParams,
 	}: DownloadTranslationParams): Promise<void> {
+		this.logMsg("debug", "Downloading translations from Lokalise...");
+
 		const {
 			asyncDownload,
 			pollInitialWaitTime,
@@ -51,8 +53,15 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		let translationsBundleURL: string;
 
 		if (asyncDownload) {
+			this.logMsg("debug", "Async download mode enabled.");
+
 			const downloadProcess =
 				await this.getTranslationsBundleAsync(downloadFileParams);
+
+			this.logMsg(
+				"debug",
+				`Waiting for download process ID ${downloadProcess.process_id} to complete...`,
+			);
 
 			const completedProcess = (
 				await this.pollProcesses(
@@ -61,6 +70,8 @@ export class LokaliseDownload extends LokaliseFileExchange {
 					pollMaximumWaitTime,
 				)
 			)[0];
+
+			this.logMsg("debug", `Download process status is ${completedProcess}`);
 
 			if (completedProcess.status === "finished") {
 				const completedProcessDetails =
@@ -73,22 +84,36 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				);
 			}
 		} else {
+			this.logMsg("debug", "Async download mode disabled.");
+
 			const translationsBundle =
 				await this.getTranslationsBundle(downloadFileParams);
 			translationsBundleURL = translationsBundle.bundle_url;
 		}
+
+		this.logMsg(
+			"debug",
+			`Downloading translation bundle from ${translationsBundleURL}`,
+		);
 
 		const zipFilePath = await this.downloadZip(
 			translationsBundleURL,
 			bundleDownloadTimeout,
 		);
 
+		const unpackTo = path.resolve(extractParams.outputDir ?? "./");
+
+		this.logMsg(
+			"debug",
+			`Unpacking translations from ${zipFilePath} to ${unpackTo}`,
+		);
+
 		try {
-			await this.unpackZip(
-				zipFilePath,
-				path.resolve(extractParams.outputDir ?? "./"),
-			);
+			await this.unpackZip(zipFilePath, unpackTo);
+
+			this.logMsg("debug", "Translations unpacked!");
 		} finally {
+			this.logMsg("debug", `Removing temp archive from ${zipFilePath}`);
 			await fs.promises.unlink(zipFilePath);
 		}
 	}
