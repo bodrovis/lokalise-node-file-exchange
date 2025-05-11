@@ -347,7 +347,10 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
         pollInitialWaitTime,
         pollMaximumWaitTime
       ))[0];
-      this.logMsg("debug", `Download process status is ${completedProcess.status}`);
+      this.logMsg(
+        "debug",
+        `Download process status is ${completedProcess.status}`
+      );
       if (completedProcess.status === "finished") {
         const completedProcessDetails = completedProcess.details;
         translationsBundleURL = completedProcessDetails.download_url;

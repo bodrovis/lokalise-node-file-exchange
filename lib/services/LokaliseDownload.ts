@@ -71,7 +71,10 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				)
 			)[0];
 
-			this.logMsg("debug", `Download process status is ${completedProcess.status}`);
+			this.logMsg(
+				"debug",
+				`Download process status is ${completedProcess.status}`,
+			);
 
 			if (completedProcess.status === "finished") {
 				const completedProcessDetails =

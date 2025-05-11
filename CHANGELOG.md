@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.1.0
+## 3.1.0 (11-May-2025)
 
 - Add [kliedz](https://github.com/bodrovis/kliedz) logger and ability to customize it (optional):
 
