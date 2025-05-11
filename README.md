@@ -131,7 +131,7 @@ The second object, `LokaliseExchangeConfig`, contains additional parameters:
 - `retryParams` (`RetryParams`, optional): Retry parameters for failed API requests. By default, the library performs up to 3 retries for 408 (timeout) and 429 (too many requests) errors. Exponential backoff is applied, with an initial sleep time of 1000 ms. Parameters include:
   - `maxRetries` (`number`): Maximum number of retries. If set to 0, the client will send only a single request without any retries.
   - `initialSleepTime` (`number`): The initial value for the sleep time in milliseconds. Subsequent sleep times are calculated using the formula `initialSleepTime * 2 ** (attempt - 1)`, where `attempt > 0`.
-- `logThreshold`: Controls the minimum severity level required for a message to be logged. Possible values: `"debug"`, `"info"`, `"warn"`, `"error"`, `"silent"`. Messages below this threshold are ignored — for example, setting it to `"warn"` will hide all `debug` and `info` logs. Default is "info".
+- `logThreshold`: Controls the minimum severity level required for a message to be logged. Possible values: `"debug"`, `"info"`, `"warn"`, `"error"`, `"silent"`. Messages below this threshold are ignored — for example, setting it to `"warn"` will hide all `debug` and `info` logs. Default is `"info"`.
 - `logColor` (`boolean`): Whether to use colored output when printing messages to console. Default is `true`.
 
 ## Performing translation file downloads

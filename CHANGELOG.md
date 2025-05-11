@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 3.1.0
+
+- Add [kliedz](https://github.com/bodrovis/kliedz) logger and ability to customize it (optional):
+
+```js
+const lokaliseUploader = new LokaliseUpload(
+  {
+    apiKey,
+  },
+  {
+    projectId,
+    logThreshold: "debug", // Print all debug messages (might generate a lot of output, default is "info", other supported values are "error", "warn", "silent")
+    logColor: true, // Don't use colorized output (default is false)
+  },
+);
+```
 
 - Make code more solid and bulletproof
 

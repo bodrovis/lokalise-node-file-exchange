@@ -1,6 +1,6 @@
 {
 	"name": "lokalise-file-exchange",
-	"version": "3.0.1",
+	"version": "3.1.0",
 	"description": "Exchange translation files with Lokalise TMS",
 	"license": "BSD-3-Clause",
 	"repository": {
@@ -31,7 +31,7 @@
 	"dependencies": {
 		"@lokalise/node-api": "^14.5.1",
 		"yauzl": "^3.2.0",
-		"kliedz": "bodrovis/kliedz#master"
+		"kliedz": "^1.0.1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.0",
