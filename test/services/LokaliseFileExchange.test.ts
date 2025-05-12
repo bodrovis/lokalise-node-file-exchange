@@ -1,10 +1,44 @@
 import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
-import { type LogFunction, logWithColor, logWithLevel } from "kliedz";
+import type { QueuedProcess } from "@lokalise/node-api";
+import { logWithColor, logWithLevel } from "kliedz";
 import { LokaliseFileExchange } from "../../lib/services/LokaliseFileExchange.js";
 import { FakeLokaliseFileExchange } from "../fixtures/fake_classes/FakeLokaliseExchange.js";
-import { describe, expect, it } from "../setup.js";
+import {
+	type Interceptable,
+	MockAgent,
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	setGlobalDispatcher,
+	vi,
+} from "../setup.js";
 
 describe("LokaliseFileExchange", () => {
+	let mockAgent: MockAgent;
+	let mockPool: Interceptable;
+
+	beforeAll(() => {
+		mockAgent = new MockAgent();
+		setGlobalDispatcher(mockAgent);
+		mockAgent.disableNetConnect();
+	});
+
+	afterAll(() => {
+		mockAgent.close();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	beforeEach(() => {
+		mockPool = mockAgent.get("https://api.lokalise.com");
+	});
+
 	describe("Instance Creation", () => {
 		it("should create an instance with valid parameters", () => {
 			const exchange = new FakeLokaliseFileExchange(
@@ -119,6 +153,111 @@ describe("LokaliseFileExchange", () => {
 						{ projectId: "123.abc", retryParams: { initialSleepTime: -1 } },
 					);
 				}).toThrow("initialSleepTime must be a positive value.");
+			});
+		});
+
+		describe("withExponentialBackoff", () => {
+			it("should reach unreachable throw without using any", async () => {
+				const exchanger = new FakeLokaliseFileExchange(
+					{
+						apiKey: "abc123",
+					},
+					{ projectId: "123.abc" },
+				);
+
+				Object.defineProperty(exchanger, "retryParams", {
+					value: {
+						maxRetries: -1,
+						initialSleepTime: 0,
+					},
+				});
+
+				await expect(
+					exchanger.withExponentialBackoff(() => {
+						throw new Error("this should never happen");
+					}),
+				).rejects.toThrow("Unexpected error during operation.");
+			});
+		});
+
+		describe("getUpdatedProcess", () => {
+			it("should use queued status by default", async () => {
+				const projectId = "123.abc";
+				const processId = "123";
+
+				const exchanger = new FakeLokaliseFileExchange(
+					{
+						apiKey: "abc123",
+					},
+					{ projectId },
+				);
+
+				mockPool
+					.intercept({
+						path: `/api2/projects/${projectId}/processes/${processId}`,
+						method: "GET",
+					})
+					.reply(200, {
+						project_id: projectId,
+						process: {
+							process_id: processId,
+							type: "file-import",
+						},
+					});
+
+				const process = await exchanger.getUpdatedProcess(processId);
+
+				expect(process.process_id).toEqual(processId);
+				expect(process.status).toEqual("queued");
+			});
+		});
+
+		describe("pollProcesses", () => {
+			it("should warn when process cannot be fetched", async () => {
+				const exchanger = new FakeLokaliseFileExchange(
+					{
+						apiKey: "abc123",
+					},
+					{ projectId: "123.abc" },
+				);
+
+				const fakeStart = 1_000_000;
+				let currentTime = fakeStart;
+
+				vi.stubGlobal(
+					"Date",
+					class extends Date {
+						static now() {
+							return currentTime;
+						}
+					},
+				);
+
+				const loggerSpy = vi.spyOn(exchanger, "logMsg").mockResolvedValue();
+
+				const processId = "123";
+				const fakeError = new Error("cannot get process");
+				const process = {
+					process_id: processId,
+				} as QueuedProcess;
+
+				const getProcessSpy = vi
+					.spyOn(exchanger, "getUpdatedProcess")
+					.mockImplementation(async () => {
+						currentTime += 1_000;
+						throw fakeError;
+					});
+
+				await exchanger.pollProcesses([process], 1, 1000);
+
+				expect(getProcessSpy).toHaveBeenCalledWith(process.process_id);
+				expect(loggerSpy).toHaveBeenCalledWith(
+					"warn",
+					`Failed to fetch process ${processId}:`,
+					fakeError,
+				);
+
+				vi.unstubAllGlobals();
 			});
 		});
 	});

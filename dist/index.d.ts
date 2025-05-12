@@ -155,7 +155,7 @@ declare class LokaliseFileExchange {
      * @param processId - The ID of the queued process to fetch.
      * @returns A promise that resolves to the updated queued process.
      */
-    private getUpdatedProcess;
+    protected getUpdatedProcess(processId: string): Promise<QueuedProcess>;
     /**
      * Validates the required client configuration parameters.
      *

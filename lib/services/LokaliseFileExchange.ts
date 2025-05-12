@@ -170,7 +170,6 @@ export class LokaliseFileExchange {
 		}
 
 		// This line is unreachable but keeps TS happy.
-		/* istanbul ignore next */
 		throw new LokaliseError("Unexpected error during operation.", 500);
 	}
 
@@ -284,7 +283,7 @@ export class LokaliseFileExchange {
 	 * @param processId - The ID of the queued process to fetch.
 	 * @returns A promise that resolves to the updated queued process.
 	 */
-	private async getUpdatedProcess(processId: string): Promise<QueuedProcess> {
+	protected async getUpdatedProcess(processId: string): Promise<QueuedProcess> {
 		const updatedProcess = await this.apiClient
 			.queuedProcesses()
 			.get(processId, { project_id: this.projectId });
