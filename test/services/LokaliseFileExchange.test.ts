@@ -18,27 +18,6 @@ import {
 } from "../setup.js";
 
 describe("LokaliseFileExchange", () => {
-	let mockAgent: MockAgent;
-	let mockPool: Interceptable;
-
-	beforeAll(() => {
-		mockAgent = new MockAgent();
-		setGlobalDispatcher(mockAgent);
-		mockAgent.disableNetConnect();
-	});
-
-	afterAll(() => {
-		mockAgent.close();
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
-	});
-
-	beforeEach(() => {
-		mockPool = mockAgent.get("https://api.lokalise.com");
-	});
-
 	describe("Instance Creation", () => {
 		it("should create an instance with valid parameters", () => {
 			const exchange = new FakeLokaliseFileExchange(
@@ -181,6 +160,27 @@ describe("LokaliseFileExchange", () => {
 		});
 
 		describe("getUpdatedProcess", () => {
+			let mockAgent: MockAgent;
+			let mockPool: Interceptable;
+
+			beforeAll(() => {
+				mockAgent = new MockAgent();
+				setGlobalDispatcher(mockAgent);
+				mockAgent.disableNetConnect();
+			});
+
+			afterAll(() => {
+				mockAgent.close();
+			});
+
+			afterEach(() => {
+				vi.restoreAllMocks();
+			});
+
+			beforeEach(() => {
+				mockPool = mockAgent.get("https://api.lokalise.com");
+			});
+
 			it("should use queued status by default", async () => {
 				const projectId = "123.abc";
 				const processId = "123";
@@ -221,18 +221,6 @@ describe("LokaliseFileExchange", () => {
 					{ projectId: "123.abc" },
 				);
 
-				const fakeStart = 1_000_000;
-				let currentTime = fakeStart;
-
-				vi.stubGlobal(
-					"Date",
-					class extends Date {
-						static now() {
-							return currentTime;
-						}
-					},
-				);
-
 				const loggerSpy = vi.spyOn(exchanger, "logMsg").mockResolvedValue();
 
 				const processId = "123";
@@ -241,10 +229,14 @@ describe("LokaliseFileExchange", () => {
 					process_id: processId,
 				} as QueuedProcess;
 
+				const fakeDatetime = "2025-05-10T12:00:00.000Z";
+				const mockDate = new Date(fakeDatetime);
+				vi.useFakeTimers().setSystemTime(mockDate);
+
 				const getProcessSpy = vi
 					.spyOn(exchanger, "getUpdatedProcess")
 					.mockImplementation(async () => {
-						currentTime += 1_000;
+						vi.advanceTimersByTime(1001);
 						throw fakeError;
 					});
 
@@ -257,7 +249,7 @@ describe("LokaliseFileExchange", () => {
 					fakeError,
 				);
 
-				vi.unstubAllGlobals();
+				vi.useRealTimers();
 			});
 		});
 	});
