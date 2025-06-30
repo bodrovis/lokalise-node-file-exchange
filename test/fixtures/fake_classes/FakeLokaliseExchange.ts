@@ -1,7 +1,5 @@
-import type { LokaliseApi } from "@lokalise/node-api";
-import type { QueuedProcess } from "@lokalise/node-api";
-import type { LogFunction, LogThreshold } from "kliedz";
-import type { LogLevel } from "kliedz";
+import type { LokaliseApi, QueuedProcess } from "@lokalise/node-api";
+import type { LogFunction, LogLevel, LogThreshold } from "kliedz";
 import { LokaliseFileExchange } from "../../../lib/services/LokaliseFileExchange.js";
 
 // Public morozov

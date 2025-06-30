@@ -4,6 +4,7 @@ import mock from "mock-fs";
 import { MockAgent, setGlobalDispatcher } from "undici";
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { LokaliseUpload } from "../../../lib/services/LokaliseUpload.js";
+import type { Interceptable } from "../../setup.js";
 import {
 	afterAll,
 	afterEach,
@@ -14,7 +15,6 @@ import {
 	it,
 	vi,
 } from "../../setup.js";
-import type { Interceptable } from "../../setup.js";
 
 describe("LokaliseUpload: uploadTranslations()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";

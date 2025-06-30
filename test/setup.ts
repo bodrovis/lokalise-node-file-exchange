@@ -1,5 +1,6 @@
-import * as dotenv from "dotenv";
-dotenv.config();
+import * as dotenv from "@dotenvx/dotenvx";
+
+dotenv.config({ quiet: true });
 
 import { MockAgent, setGlobalDispatcher } from "undici";
 import type {

@@ -2,8 +2,8 @@ import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { LokaliseFileExchange } from "../../../lib/services/LokaliseFileExchange.js";
 import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
 import type { TestableLokaliseFileExchange } from "../../fixtures/fake_interfaces/TestableLokaliseFileExchange.js";
+import type { Interceptable } from "../../setup.js";
 import {
-	MockAgent,
 	afterAll,
 	afterEach,
 	beforeAll,
@@ -11,10 +11,10 @@ import {
 	describe,
 	expect,
 	it,
+	MockAgent,
 	setGlobalDispatcher,
 	vi,
 } from "../../setup.js";
-import type { Interceptable } from "../../setup.js";
 
 describe("LokaliseUpload: uploadSingleFile()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";

@@ -5,8 +5,8 @@ import { pipeline } from "node:stream";
 import { promisify } from "node:util";
 import type {
 	DownloadBundle,
-	DownloadFileParams,
 	DownloadedFileProcessDetails,
+	DownloadFileParams,
 	QueuedProcess,
 } from "@lokalise/node-api";
 import yauzl from "yauzl";

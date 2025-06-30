@@ -4,8 +4,8 @@ import path from "node:path";
 import { Writable } from "node:stream";
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
+import type { Interceptable } from "../../setup.js";
 import {
-	MockAgent,
 	afterAll,
 	afterEach,
 	beforeAll,
@@ -13,10 +13,10 @@ import {
 	describe,
 	expect,
 	it,
+	MockAgent,
 	setGlobalDispatcher,
 	vi,
 } from "../../setup.js";
-import type { Interceptable } from "../../setup.js";
 
 type MockWriteStream = fs.WriteStream & {
 	path: string;

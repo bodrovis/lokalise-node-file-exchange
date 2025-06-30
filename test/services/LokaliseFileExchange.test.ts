@@ -1,18 +1,18 @@
-import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
 import type { QueuedProcess } from "@lokalise/node-api";
+import { LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
 import { logWithColor, logWithLevel } from "kliedz";
 import { LokaliseFileExchange } from "../../lib/services/LokaliseFileExchange.js";
 import { FakeLokaliseFileExchange } from "../fixtures/fake_classes/FakeLokaliseExchange.js";
 import {
-	type Interceptable,
-	MockAgent,
 	afterAll,
 	afterEach,
 	beforeAll,
 	beforeEach,
 	describe,
 	expect,
+	type Interceptable,
 	it,
+	MockAgent,
 	setGlobalDispatcher,
 	vi,
 } from "../setup.js";

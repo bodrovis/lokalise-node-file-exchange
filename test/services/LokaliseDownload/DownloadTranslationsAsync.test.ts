@@ -9,6 +9,7 @@ import mockFs from "mock-fs";
 import { MockAgent, setGlobalDispatcher } from "undici";
 import { LokaliseError } from "../../../lib/index.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
+import type { Interceptable } from "../../setup.js";
 import {
 	afterAll,
 	afterEach,
@@ -19,7 +20,6 @@ import {
 	it,
 	vi,
 } from "../../setup.js";
-import type { Interceptable } from "../../setup.js";
 
 describe("LokaliseDownload: downloadTranslations()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";

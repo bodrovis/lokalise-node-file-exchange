@@ -2,8 +2,8 @@ import type { DownloadFileParams } from "@lokalise/node-api";
 import { LokaliseFileExchange } from "../../../lib/services/LokaliseFileExchange.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
 import type { TestableLokaliseFileExchange } from "../../fixtures/fake_interfaces/TestableLokaliseFileExchange.js";
+import type { Interceptable } from "../../setup.js";
 import {
-	MockAgent,
 	afterAll,
 	afterEach,
 	beforeAll,
@@ -11,10 +11,10 @@ import {
 	describe,
 	expect,
 	it,
+	MockAgent,
 	setGlobalDispatcher,
 	vi,
 } from "../../setup.js";
-import type { Interceptable } from "../../setup.js";
 
 describe("LokaliseDownload: getTranslationsBundleAsync()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";

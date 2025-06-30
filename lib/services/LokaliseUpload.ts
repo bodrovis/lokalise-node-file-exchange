@@ -5,8 +5,8 @@ import type {
 	CollectFileParams,
 	FileUploadError,
 	PartialUploadFileParams,
-	ProcessUploadFileParams,
 	ProcessedFile,
+	ProcessUploadFileParams,
 	QueuedUploadProcessesWithErrors,
 	UploadTranslationParams,
 } from "../interfaces/index.js";

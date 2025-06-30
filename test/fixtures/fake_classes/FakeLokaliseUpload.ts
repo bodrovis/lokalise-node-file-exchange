@@ -1,7 +1,7 @@
 import type { QueuedProcess, UploadFileParams } from "@lokalise/node-api";
 import type { CollectFileParams } from "../../../lib/interfaces/CollectFileParams.js";
-import type { ProcessUploadFileParams } from "../../../lib/interfaces/ProcessUploadFileParams.js";
 import type { ProcessedFile } from "../../../lib/interfaces/ProcessedFile.js";
+import type { ProcessUploadFileParams } from "../../../lib/interfaces/ProcessUploadFileParams.js";
 import { LokaliseUpload } from "../../../lib/services/LokaliseUpload.js";
 
 // Public morozov

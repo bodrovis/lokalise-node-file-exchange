@@ -1,9 +1,9 @@
+import type { ClientParams, QueuedProcess } from "@lokalise/node-api";
 import {
 	LokaliseApi,
 	ApiError as LokaliseApiError,
 	LokaliseApiOAuth,
 } from "@lokalise/node-api";
-import type { ClientParams, QueuedProcess } from "@lokalise/node-api";
 import {
 	type LogFunction,
 	type LogLevel,
