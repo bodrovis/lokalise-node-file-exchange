@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.0 (23-Jul-2025)
+
+* **Breaking change**: require Node 20+
+
 ## 3.1.0 (11-May-2025)
 
 - Add [kliedz](https://github.com/bodrovis/kliedz) logger and ability to customize it (optional):

@@ -1,6 +1,9 @@
-import * as dotenv from "@dotenvx/dotenvx";
+import { existsSync } from "node:fs";
+import { loadEnvFile } from "node:process";
 
-dotenv.config({ quiet: true });
+if (existsSync(".env")) {
+	loadEnvFile();
+}
 
 import { MockAgent, setGlobalDispatcher } from "undici";
 import type {
