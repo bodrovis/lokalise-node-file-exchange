@@ -340,7 +340,7 @@ Licensed under BSD 3 Clause
 
 [npm-downloads-image]: https://badgen.net/npm/dm/lokalise-file-exchange
 [npm-downloads-url]: https://npmcharts.com/compare/lokalise-file-exchange?minimal=true
-[coverage-image]: https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/test_coverage.svg
+[coverage-image]: https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange/coverage.svg
 [coverage-url]: https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange
-[maintainability-image]: https://qlty.sh/badges/70040e94-5498-4452-b86e-2cfcbbdd9a9e/maintainability.svg
+[maintainability-image]: https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange/maintainability.svg
 [maintainability-url]: https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange
