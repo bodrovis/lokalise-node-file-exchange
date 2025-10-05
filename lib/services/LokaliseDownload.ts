@@ -185,7 +185,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 
 		try {
 			response = await fetch(bundleURL, {
-				signal,
+				...(signal ? { signal } : {}),
 			});
 		} catch (err) {
 			if (err instanceof Error) {

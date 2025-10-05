@@ -18,7 +18,9 @@ var LokaliseError = class extends Error {
   constructor(message, code, details) {
     super(message);
     this.code = code;
-    this.details = details;
+    if (details) {
+      this.details = details;
+    }
   }
   /**
    * Returns a string representation of the error, including code and details.
@@ -433,7 +435,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
     const signal = downloadTimeout > 0 ? AbortSignal.timeout(downloadTimeout) : void 0;
     try {
       response = await fetch(bundleURL, {
-        signal
+        ...signal ? { signal } : {}
       });
     } catch (err) {
       if (err instanceof Error) {

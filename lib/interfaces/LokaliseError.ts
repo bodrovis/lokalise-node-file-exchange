@@ -10,7 +10,7 @@ export interface LokaliseError {
 	/**
 	 * The error code representing the type of Lokalise API error.
 	 */
-	code?: number;
+	code?: number | undefined;
 
 	/**
 	 * Additional details about the error (optional).

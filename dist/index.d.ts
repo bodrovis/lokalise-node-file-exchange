@@ -12,7 +12,7 @@ interface LokaliseError$1 {
     /**
      * The error code representing the type of Lokalise API error.
      */
-    code?: number;
+    code?: number | undefined;
     /**
      * Additional details about the error (optional).
      */
@@ -26,7 +26,7 @@ declare class LokaliseError extends Error implements LokaliseError$1 {
     /**
      * The error code representing the type of Lokalise API error.
      */
-    code?: number;
+    code?: number | undefined;
     /**
      * Additional details about the error.
      */

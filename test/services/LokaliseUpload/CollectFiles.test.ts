@@ -93,7 +93,7 @@ describe("LokaliseUpload: collectFiles()", () => {
 
 		it("should handle mixed file extensions correctly", async () => {
 			const files = await lokaliseUpload.collectFiles({
-				extensions: [".json", ".js"],
+				extensions: [".json", "JS"],
 			});
 			const expectedFiles = [
 				fullPath("./locales/en.json"),

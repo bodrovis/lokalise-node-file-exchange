@@ -7,7 +7,7 @@ export class LokaliseError extends Error implements ILokaliseError {
 	/**
 	 * The error code representing the type of Lokalise API error.
 	 */
-	code?: number;
+	code?: number | undefined;
 
 	/**
 	 * Additional details about the error.
@@ -28,7 +28,10 @@ export class LokaliseError extends Error implements ILokaliseError {
 	) {
 		super(message);
 		this.code = code;
-		this.details = details;
+
+		if (details) {
+			this.details = details;
+		}
 	}
 
 	/**
