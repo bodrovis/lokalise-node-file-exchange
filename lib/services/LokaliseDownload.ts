@@ -13,6 +13,7 @@ import yauzl from "yauzl";
 import { LokaliseError } from "../errors/LokaliseError.js";
 import type { DownloadTranslationParams } from "../interfaces/index.js";
 import { LokaliseFileExchange } from "./LokaliseFileExchange.js";
+import crypto from 'node:crypto';
 
 /**
  * Handles downloading and extracting translation files from Lokalise.
@@ -176,7 +177,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	): Promise<string> {
 		const bundleURL = this.assertHttpUrl(url);
 
-		const uid = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		const uid = `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
 		const tempZipPath = path.join(os.tmpdir(), `lokalise-${uid}.zip`);
 		let response: Response;
 

@@ -307,6 +307,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
 };
 
 // lib/services/LokaliseDownload.ts
+import crypto from "crypto";
 var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
   static defaultProcessParams = {
     asyncDownload: false,
@@ -429,7 +430,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
    */
   async downloadZip(url, downloadTimeout = 0) {
     const bundleURL = this.assertHttpUrl(url);
-    const uid = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const uid = `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
     const tempZipPath = path.join(os.tmpdir(), `lokalise-${uid}.zip`);
     let response;
     const signal = downloadTimeout > 0 ? AbortSignal.timeout(downloadTimeout) : void 0;
