@@ -41,6 +41,7 @@ var LokaliseError = class extends Error {
 };
 
 // lib/services/LokaliseDownload.ts
+import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -307,7 +308,6 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
 };
 
 // lib/services/LokaliseDownload.ts
-import crypto from "crypto";
 var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
   static defaultProcessParams = {
     asyncDownload: false,
