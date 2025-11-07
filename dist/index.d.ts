@@ -409,6 +409,7 @@ declare class LokaliseUpload extends LokaliseFileExchange {
      * @param opts - Options including extensions, name pattern, exclusions, and recursion flag.
      */
     private handleEntry;
+    private toPosixPath;
 }
 
 export { type CollectFileParams, type DownloadTranslationParams, type ExtractParams, type FileUploadError, LokaliseDownload, LokaliseError, type LokaliseExchangeConfig, LokaliseUpload, type PartialUploadFileParams, type ProcessDownloadFileParams, type ProcessUploadFileParams, type ProcessedFile, type QueuedUploadProcessesWithErrors, type RetryParams, type UploadTranslationParams };

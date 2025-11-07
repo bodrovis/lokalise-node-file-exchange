@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pipeline } from "node:stream";
+import { pipeline, Readable } from "node:stream";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { promisify } from "node:util";
 import type {
 	DownloadBundle,
@@ -275,7 +276,25 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			);
 		}
 
-		await this.streamPipeline(body, fs.createWriteStream(tempZipPath));
+		try {
+			const nodeReadable = Readable.fromWeb(
+				body as unknown as WebReadableStream<Uint8Array>,
+			);
+			await this.streamPipeline(
+				nodeReadable,
+				fs.createWriteStream(tempZipPath),
+			);
+		} catch (e) {
+			try {
+				await fs.promises.unlink(tempZipPath);
+			} catch {
+				this.logMsg(
+					"debug",
+					`Stream pipeline failed and unable to remove temp path ${tempZipPath}`,
+				);
+			}
+			throw e;
+		}
 		return tempZipPath;
 	}
 

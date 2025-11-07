@@ -166,7 +166,9 @@ describe("LokaliseUpload: collectFiles()", () => {
 				lokaliseUpload.collectFiles({
 					excludePatterns: ["[invalid("],
 				}),
-			).rejects.toThrow("Invalid excludePatterns: SyntaxError");
+			).rejects.toThrow(
+				"Invalid excludePatterns: Invalid regular expression: /[invalid(/: Unterminated character class",
+			);
 		});
 
 		it("should handle invalid or inaccessible directories gracefully", async () => {

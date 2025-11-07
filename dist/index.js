@@ -45,7 +45,7 @@ import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { pipeline } from "stream";
+import { pipeline, Readable } from "stream";
 import { promisify } from "util";
 import yauzl from "yauzl";
 
@@ -554,7 +554,25 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
         `Response body is null. Cannot download ZIP file from URL: ${url}`
       );
     }
-    await this.streamPipeline(body, fs.createWriteStream(tempZipPath));
+    try {
+      const nodeReadable = Readable.fromWeb(
+        body
+      );
+      await this.streamPipeline(
+        nodeReadable,
+        fs.createWriteStream(tempZipPath)
+      );
+    } catch (e) {
+      try {
+        await fs.promises.unlink(tempZipPath);
+      } catch {
+        this.logMsg(
+          "debug",
+          `Stream pipeline failed and unable to remove temp path ${tempZipPath}`
+        );
+      }
+      throw e;
+    }
     return tempZipPath;
   }
   /**
@@ -766,10 +784,9 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
         throw new Error("Invalid filename: empty or only whitespace");
       }
     } catch {
-      const toPosixPath = (p) => p.split(path2.sep).join(path2.posix.sep);
       relativePath = path2.posix.relative(
-        toPosixPath(projectRoot),
-        toPosixPath(file)
+        this.toPosixPath(projectRoot),
+        this.toPosixPath(file)
       );
     }
     let languageCode;
@@ -876,7 +893,8 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     try {
       return excludePatterns.map((pattern) => new RegExp(pattern));
     } catch (err) {
-      throw new Error(`Invalid excludePatterns: ${err}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Invalid excludePatterns: ${msg}`);
     }
   }
   /**
@@ -902,8 +920,9 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
    * @param excludeRegexes - An array of RegExp patterns to test against.
    * @returns `true` if the file path matches any exclude pattern, otherwise `false`.
    */
-  shouldExclude(filePath, excludeRegexes) {
-    return excludeRegexes.some((regex) => regex.test(filePath));
+  shouldExclude(filePath, rx) {
+    const posix = this.toPosixPath(filePath);
+    return rx.some((r) => r.test(filePath) || r.test(posix));
   }
   /**
    * Creates a queue of absolute paths from the provided input directories.
@@ -972,6 +991,9 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     if (entry.isFile() && this.shouldCollectFile(entry, opts.exts, opts.nameRx)) {
       found.push(fullPath);
     }
+  }
+  toPosixPath(p) {
+    return p.split(path2.sep).join(path2.posix.sep);
   }
 };
 export {

@@ -140,10 +140,9 @@ export class LokaliseUpload extends LokaliseFileExchange {
 				throw new Error("Invalid filename: empty or only whitespace");
 			}
 		} catch {
-			const toPosixPath = (p: string) => p.split(path.sep).join(path.posix.sep);
 			relativePath = path.posix.relative(
-				toPosixPath(projectRoot),
-				toPosixPath(file),
+				this.toPosixPath(projectRoot),
+				this.toPosixPath(file),
 			);
 		}
 
@@ -273,7 +272,8 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		try {
 			return excludePatterns.map((pattern) => new RegExp(pattern));
 		} catch (err) {
-			throw new Error(`Invalid excludePatterns: ${err}`);
+			const msg = err instanceof Error ? err.message : String(err);
+			throw new Error(`Invalid excludePatterns: ${msg}`);
 		}
 	}
 
@@ -301,8 +301,9 @@ export class LokaliseUpload extends LokaliseFileExchange {
 	 * @param excludeRegexes - An array of RegExp patterns to test against.
 	 * @returns `true` if the file path matches any exclude pattern, otherwise `false`.
 	 */
-	private shouldExclude(filePath: string, excludeRegexes: RegExp[]): boolean {
-		return excludeRegexes.some((regex) => regex.test(filePath));
+	private shouldExclude(filePath: string, rx: RegExp[]): boolean {
+		const posix = this.toPosixPath(filePath);
+		return rx.some((r) => r.test(filePath) || r.test(posix));
 	}
 
 	/**
@@ -398,5 +399,9 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		) {
 			found.push(fullPath);
 		}
+	}
+
+	private toPosixPath(p: string): string {
+		return p.split(path.sep).join(path.posix.sep);
 	}
 }
