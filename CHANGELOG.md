@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.1 (07-Nov-2025)
+
+* Fixed edge cases related to process polling and async downloads
+
 ## 4.0.0 (23-Jul-2025)
 
 * **Breaking change**: require Node 20+

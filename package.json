@@ -1,6 +1,6 @@
 {
 	"name": "lokalise-file-exchange",
-	"version": "4.0.0",
+	"version": "4.0.1",
 	"description": "Exchange translation files with Lokalise TMS",
 	"license": "BSD-3-Clause",
 	"repository": {
@@ -43,7 +43,8 @@
 		"tsup": "^8.3.0",
 		"typescript": "^5.8.2",
 		"undici": "^7.0.0",
-		"vitest": "^4.0.3"
+		"vitest": "^4.0.3",
+		"patch-package": "^8.0.1"
 	},
 	"bugs": {
 		"url": "https://github.com/bodrovis/lokalise-node-file-exchange/issues"

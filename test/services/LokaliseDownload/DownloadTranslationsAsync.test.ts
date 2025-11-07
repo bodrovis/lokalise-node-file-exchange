@@ -214,7 +214,9 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 						pollMaximumWaitTime: 1000,
 					},
 				}),
-			).rejects.toThrow("Invalid URL: undefined");
+			).rejects.toThrow(
+				"Lokalise returned finished process without a download_url",
+			);
 		});
 
 		it("should throw an error if downloadZip fails", async () => {

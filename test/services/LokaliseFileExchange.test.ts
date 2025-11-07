@@ -181,7 +181,7 @@ describe("LokaliseFileExchange", () => {
 				mockPool = mockAgent.get("https://api.lokalise.com");
 			});
 
-			it("should use queued status by default", async () => {
+			it("should handle case when status is missing", async () => {
 				const projectId = "123.abc";
 				const processId = "123";
 
@@ -208,16 +208,14 @@ describe("LokaliseFileExchange", () => {
 				const process = await exchanger.getUpdatedProcess(processId);
 
 				expect(process.process_id).toEqual(processId);
-				expect(process.status).toEqual("queued");
+				expect(process.status).toEqual(undefined);
 			});
 		});
 
 		describe("pollProcesses", () => {
 			it("should warn when process cannot be fetched", async () => {
 				const exchanger = new FakeLokaliseFileExchange(
-					{
-						apiKey: "abc123",
-					},
+					{ apiKey: "abc123" },
 					{ projectId: "123.abc" },
 				);
 
@@ -225,13 +223,10 @@ describe("LokaliseFileExchange", () => {
 
 				const processId = "123";
 				const fakeError = new Error("cannot get process");
-				const process = {
-					process_id: processId,
-				} as QueuedProcess;
+				const process = { process_id: processId } as QueuedProcess;
 
 				const fakeDatetime = "2025-05-10T12:00:00.000Z";
-				const mockDate = new Date(fakeDatetime);
-				vi.useFakeTimers().setSystemTime(mockDate);
+				vi.useFakeTimers().setSystemTime(new Date(fakeDatetime));
 
 				const getProcessSpy = vi
 					.spyOn(exchanger, "getUpdatedProcess")
@@ -240,9 +235,13 @@ describe("LokaliseFileExchange", () => {
 						throw fakeError;
 					});
 
-				await exchanger.pollProcesses([process], 1, 1000);
+				const pollPromise = exchanger.pollProcesses([process], 1, 1000);
 
-				expect(getProcessSpy).toHaveBeenCalledWith(process.process_id);
+				await vi.advanceTimersByTimeAsync(200);
+
+				await pollPromise;
+
+				expect(getProcessSpy).toHaveBeenCalledWith(processId);
 				expect(loggerSpy).toHaveBeenCalledWith(
 					"warn",
 					`Failed to fetch process ${processId}:`,

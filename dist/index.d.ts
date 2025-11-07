@@ -151,6 +151,8 @@ declare class LokaliseFileExchange {
     private static readonly PENDING_STATUSES;
     private static readonly FINISHED_STATUSES;
     private static readonly RETRYABLE_CODES;
+    private static isPendingStatus;
+    private static isFinishedStatus;
     /**
      * Creates a new instance of LokaliseFileExchange.
      *
@@ -161,61 +163,30 @@ declare class LokaliseFileExchange {
     constructor(clientConfig: ClientParams, { projectId, useOAuth2, retryParams, logThreshold, logColor, }: LokaliseExchangeConfig);
     /**
      * Executes an asynchronous operation with exponential backoff retry logic.
-     *
-     * Retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
-     * 408 Request Timeout) using an exponential backoff strategy with optional jitter. If the maximum number
-     * of retries is exceeded, it throws an error. Non-retryable errors are immediately propagated.
-     *
-     * @template T The type of the value returned by the operation.
-     * @param operation - The asynchronous operation to execute.
-     * @returns A promise that resolves to the result of the operation if successful.
-     * @throws {LokaliseError} If the maximum number of retries is reached or a non-retryable error occurs.
      */
     protected withExponentialBackoff<T>(operation: () => Promise<T>): Promise<T>;
     /**
      * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
-     *
-     * @param {QueuedProcess[]} processes - The array of processes to poll.
-     * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
-     * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
-     * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
      */
     protected pollProcesses(processes: QueuedProcess[], initialWaitTime: number, maxWaitTime: number): Promise<QueuedProcess[]>;
     /**
      * Determines if a given error is eligible for retry.
-     *
-     * @param error - The error object returned from the Lokalise API.
-     * @returns `true` if the error is retryable, otherwise `false`.
      */
     private isRetryable;
     /**
      * Logs a message with a specified level and the current threshold.
-     *
-     * @param level - Severity level of the message (e.g. "info", "error").
-     * @param args - Values to log. Strings, objects, errors, etc.
      */
     protected logMsg(level: LogLevel, ...args: unknown[]): void;
     /**
      * Retrieves the latest state of a queued process from the API.
-     *
-     * @param processId - The ID of the queued process to fetch.
-     * @returns A promise that resolves to the updated queued process.
      */
     protected getUpdatedProcess(processId: string): Promise<QueuedProcess>;
     /**
      * Validates the required client configuration parameters.
-     *
-     * Checks for a valid `projectId` and ensures that retry parameters
-     * such as `maxRetries` and `initialSleepTime` meet the required conditions.
-     *
-     * @throws {LokaliseError} If `projectId` or `retryParams` is invalid.
      */
     private validateParams;
     /**
      * Pauses execution for the specified number of milliseconds.
-     *
-     * @param ms - The time to sleep in milliseconds.
-     * @returns A promise that resolves after the specified time.
      */
     protected static sleep(ms: number): Promise<void>;
 }

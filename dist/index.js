@@ -99,6 +99,16 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     "failed"
   ];
   static RETRYABLE_CODES = [408, 429];
+  static isPendingStatus(status) {
+    return status == null || _LokaliseFileExchange.PENDING_STATUSES.includes(
+      status
+    );
+  }
+  static isFinishedStatus(status) {
+    return status != null && _LokaliseFileExchange.FINISHED_STATUSES.includes(
+      status
+    );
+  }
   /**
    * Creates a new instance of LokaliseFileExchange.
    *
@@ -142,15 +152,6 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   }
   /**
    * Executes an asynchronous operation with exponential backoff retry logic.
-   *
-   * Retries the provided operation in the event of specific retryable errors (e.g., 429 Too Many Requests,
-   * 408 Request Timeout) using an exponential backoff strategy with optional jitter. If the maximum number
-   * of retries is exceeded, it throws an error. Non-retryable errors are immediately propagated.
-   *
-   * @template T The type of the value returned by the operation.
-   * @param operation - The asynchronous operation to execute.
-   * @returns A promise that resolves to the result of the operation if successful.
-   * @throws {LokaliseError} If the maximum number of retries is reached or a non-retryable error occurs.
    */
   async withExponentialBackoff(operation) {
     const { maxRetries, initialSleepTime } = this.retryParams;
@@ -186,11 +187,6 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   }
   /**
    * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
-   *
-   * @param {QueuedProcess[]} processes - The array of processes to poll.
-   * @param {number} initialWaitTime - The initial wait time before polling in milliseconds.
-   * @param {number} maxWaitTime - The maximum time to wait for processes in milliseconds.
-   * @returns {Promise<QueuedProcess[]>} A promise resolving to the updated array of processes with their final statuses.
    */
   async pollProcesses(processes, initialWaitTime, maxWaitTime) {
     this.logMsg(
@@ -204,24 +200,42 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     this.logMsg("debug", "Initial processes check...");
     for (const process2 of processes) {
       if (process2.status) {
-        this.logMsg("debug", `Process ID: ${process2.process_id}, status: ${process2.status}`);
+        this.logMsg(
+          "debug",
+          `Process ID: ${process2.process_id}, status: ${process2.status}`
+        );
       } else {
-        this.logMsg("debug", `Process ID: ${process2.process_id}, status is missing, setting to "queued"`);
-        process2.status = "queued";
+        this.logMsg(
+          "debug",
+          `Process ID: ${process2.process_id}, status is missing`
+        );
       }
       processMap.set(process2.process_id, process2);
-      if (_LokaliseFileExchange.PENDING_STATUSES.includes(process2.status)) {
+      if (_LokaliseFileExchange.isPendingStatus(process2.status)) {
         pendingProcessIds.add(process2.process_id);
       }
     }
+    let didFastFollow = false;
     while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
       this.logMsg("debug", `Polling... Pending IDs: ${pendingProcessIds.size}`);
+      if (!didFastFollow && [...processMap.values()].some((p) => p.status == null)) {
+        this.logMsg(
+          "debug",
+          "Fast-follow: some statuses missing, quick recheck in 200ms"
+        );
+        await _LokaliseFileExchange.sleep(200);
+        didFastFollow = true;
+      }
       await Promise.all(
         [...pendingProcessIds].map(async (processId) => {
           try {
             const updated = await this.getUpdatedProcess(processId);
             processMap.set(processId, updated);
-            if (_LokaliseFileExchange.FINISHED_STATUSES.includes(updated.status)) {
+            this.logMsg(
+              "debug",
+              `Process ID: ${processId}, status: ${updated.status ?? "missing"}`
+            );
+            if (_LokaliseFileExchange.isFinishedStatus(updated.status)) {
               this.logMsg(
                 "debug",
                 `Process ${processId} completed with status=${updated.status}.`
@@ -278,18 +292,12 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   }
   /**
    * Determines if a given error is eligible for retry.
-   *
-   * @param error - The error object returned from the Lokalise API.
-   * @returns `true` if the error is retryable, otherwise `false`.
    */
   isRetryable(error) {
     return _LokaliseFileExchange.RETRYABLE_CODES.includes(error.code);
   }
   /**
    * Logs a message with a specified level and the current threshold.
-   *
-   * @param level - Severity level of the message (e.g. "info", "error").
-   * @param args - Values to log. Strings, objects, errors, etc.
    */
   logMsg(level, ...args) {
     this.logger(
@@ -299,29 +307,26 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   }
   /**
    * Retrieves the latest state of a queued process from the API.
-   *
-   * @param processId - The ID of the queued process to fetch.
-   * @returns A promise that resolves to the updated queued process.
    */
   async getUpdatedProcess(processId) {
     this.logMsg("debug", `Requesting update for process ID: ${processId}`);
     const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
     this.logMsg("debug", updatedProcess);
     if (updatedProcess.status) {
-      this.logMsg("debug", `Process ID: ${updatedProcess.process_id}, status: ${updatedProcess.status}`);
+      this.logMsg(
+        "debug",
+        `Process ID: ${updatedProcess.process_id}, status: ${updatedProcess.status}`
+      );
     } else {
-      this.logMsg("debug", `Process ID: ${updatedProcess.process_id}, status is missing, setting to "queued"`);
-      updatedProcess.status = "queued";
+      this.logMsg(
+        "debug",
+        `Process ID: ${updatedProcess.process_id}, status is missing`
+      );
     }
     return updatedProcess;
   }
   /**
    * Validates the required client configuration parameters.
-   *
-   * Checks for a valid `projectId` and ensures that retry parameters
-   * such as `maxRetries` and `initialSleepTime` meet the required conditions.
-   *
-   * @throws {LokaliseError} If `projectId` or `retryParams` is invalid.
    */
   validateParams() {
     if (!this.projectId || typeof this.projectId !== "string") {
@@ -338,9 +343,6 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   }
   /**
    * Pauses execution for the specified number of milliseconds.
-   *
-   * @param ms - The time to sleep in milliseconds.
-   * @returns A promise that resolves after the specified time.
    */
   static sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -403,13 +405,31 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
           500
         );
       }
+      if (!completedProcess.status) {
+        throw new LokaliseError(
+          `Process ${completedProcess.process_id} completed without status (not finalized by Lokalise).`,
+          502
+        );
+      }
       this.logMsg(
         "debug",
         `Download process status is ${completedProcess.status}`
       );
       if (completedProcess.status === "finished") {
-        const completedProcessDetails = completedProcess.details;
-        translationsBundleURL = completedProcessDetails.download_url;
+        const details = completedProcess.details;
+        const url = details?.download_url;
+        if (!url || typeof url !== "string") {
+          throw new LokaliseError(
+            "Lokalise returned finished process without a download_url",
+            502
+          );
+        }
+        translationsBundleURL = url;
+      } else if (completedProcess.status === "failed" || completedProcess.status === "cancelled") {
+        throw new LokaliseError(
+          `Process ended with status=${completedProcess.status}${completedProcess.message ? `: ${completedProcess.message}` : ""}`,
+          502
+        );
       } else {
         this.logMsg(
           "warn",
@@ -425,10 +445,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
       const translationsBundle = await this.getTranslationsBundle(downloadFileParams);
       translationsBundleURL = translationsBundle.bundle_url;
     }
-    this.logMsg(
-      "debug",
-      `Downloading translation bundle from ${translationsBundleURL}`
-    );
+    this.logMsg("debug", "Downloading translation bundle...");
     const zipFilePath = await this.downloadZip(
       translationsBundleURL,
       bundleDownloadTimeout

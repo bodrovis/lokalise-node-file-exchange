@@ -63,7 +63,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				"debug",
 				`Waiting for download process ID ${downloadProcess.process_id} to complete...`,
 			);
-
 			this.logMsg(
 				"debug",
 				`Effective waits: initial=${pollInitialWaitTime}ms, max=${pollMaximumWaitTime}ms`,
@@ -78,10 +77,18 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			const completedProcess = results.find(
 				(p) => p.process_id === downloadProcess.process_id,
 			);
+
 			if (!completedProcess) {
 				throw new LokaliseError(
 					`Process ${downloadProcess.process_id} not found after polling`,
 					500,
+				);
+			}
+
+			if (!completedProcess.status) {
+				throw new LokaliseError(
+					`Process ${completedProcess.process_id} completed without status (not finalized by Lokalise).`,
+					502,
 				);
 			}
 
@@ -91,15 +98,34 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			);
 
 			if (completedProcess.status === "finished") {
-				const completedProcessDetails =
-					completedProcess.details as DownloadedFileProcessDetails;
-				translationsBundleURL = completedProcessDetails.download_url;
+				const details = completedProcess.details as
+					| (DownloadedFileProcessDetails & { download_url?: string })
+					| undefined;
+
+				const url = details?.download_url;
+				if (!url || typeof url !== "string") {
+					throw new LokaliseError(
+						"Lokalise returned finished process without a download_url",
+						502,
+					);
+				}
+
+				translationsBundleURL = url;
+			} else if (
+				completedProcess.status === "failed" ||
+				completedProcess.status === "cancelled"
+			) {
+				throw new LokaliseError(
+					`Process ended with status=${completedProcess.status}${
+						completedProcess.message ? `: ${completedProcess.message}` : ""
+					}`,
+					502,
+				);
 			} else {
 				this.logMsg(
 					"warn",
 					`Process ended with status=${completedProcess.status}`,
 				);
-
 				throw new LokaliseError(
 					`Download process took too long to finalize; ` +
 						`configured=${String(processDownloadFileParams?.pollMaximumWaitTime)} ` +
@@ -115,10 +141,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			translationsBundleURL = translationsBundle.bundle_url;
 		}
 
-		this.logMsg(
-			"debug",
-			`Downloading translation bundle from ${translationsBundleURL}`,
-		);
+		this.logMsg("debug", "Downloading translation bundle...");
 
 		const zipFilePath = await this.downloadZip(
 			translationsBundleURL,
