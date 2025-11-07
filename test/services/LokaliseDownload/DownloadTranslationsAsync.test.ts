@@ -172,7 +172,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 					},
 				}),
 			).rejects.toThrow(
-				`Download process took too long to finalize; gave up after ${pollMaximumWaitTime}ms`,
+				`Download process took too long to finalize; configured=${pollMaximumWaitTime} effective=${pollMaximumWaitTime}ms`,
 			);
 		});
 

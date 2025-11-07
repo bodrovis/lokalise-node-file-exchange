@@ -217,16 +217,16 @@ export class LokaliseFileExchange {
 			await Promise.all(
 				[...pendingProcessIds].map(async (processId) => {
 					try {
-						const updatedProcess = await this.getUpdatedProcess(processId);
-
-						processMap.set(processId, updatedProcess);
+						const updated = await this.getUpdatedProcess(processId);
+						processMap.set(processId, updated);
 
 						if (
-							LokaliseFileExchange.FINISHED_STATUSES.includes(
-								updatedProcess.status,
-							)
+							LokaliseFileExchange.FINISHED_STATUSES.includes(updated.status)
 						) {
-							this.logMsg("debug", `Process ${processId} completed.`);
+							this.logMsg(
+								"debug",
+								`Process ${processId} completed with status=${updated.status}.`,
+							);
 							pendingProcessIds.delete(processId);
 						}
 					} catch (error) {
@@ -235,20 +235,51 @@ export class LokaliseFileExchange {
 				}),
 			);
 
-			if (
-				pendingProcessIds.size === 0 ||
-				Date.now() - startTime >= maxWaitTime
-			) {
+			if (pendingProcessIds.size === 0) {
+				this.logMsg("debug", "Finished polling. Pending processes IDs: 0");
+				break;
+			}
+
+			const elapsed = Date.now() - startTime;
+			const remaining = maxWaitTime - elapsed;
+
+			if (remaining <= 0) {
 				this.logMsg(
 					"debug",
-					`Finished polling. Pending processes IDs: ${pendingProcessIds.size}`,
+					"Time budget exhausted, stopping polling without extra sleep.",
 				);
 				break;
 			}
 
-			this.logMsg("debug", `Waiting ${waitTime}...`);
-			await LokaliseFileExchange.sleep(waitTime);
-			waitTime = Math.min(waitTime * 2, maxWaitTime - (Date.now() - startTime));
+			const sleepMs = Math.min(waitTime, remaining);
+			this.logMsg("debug", `Waiting ${sleepMs}...`);
+			await LokaliseFileExchange.sleep(sleepMs);
+
+			waitTime = Math.min(
+				waitTime * 2,
+				Math.max(0, maxWaitTime - (Date.now() - startTime)),
+			);
+		}
+
+		if (pendingProcessIds.size > 0) {
+			this.logMsg(
+				"debug",
+				`Final refresh for ${pendingProcessIds.size} pending processes before return...`,
+			);
+			await Promise.all(
+				[...pendingProcessIds].map(async (processId) => {
+					try {
+						const updated = await this.getUpdatedProcess(processId);
+						processMap.set(processId, updated);
+					} catch (error) {
+						this.logMsg(
+							"warn",
+							`Final refresh failed for process ${processId}:`,
+							error,
+						);
+					}
+				}),
+			);
 		}
 
 		return Array.from(processMap.values());

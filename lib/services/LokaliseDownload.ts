@@ -64,13 +64,26 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				`Waiting for download process ID ${downloadProcess.process_id} to complete...`,
 			);
 
-			const completedProcess = (
-				await this.pollProcesses(
-					[downloadProcess],
-					pollInitialWaitTime,
-					pollMaximumWaitTime,
-				)
-			)[0];
+			this.logMsg(
+				"debug",
+				`Effective waits: initial=${pollInitialWaitTime}ms, max=${pollMaximumWaitTime}ms`,
+			);
+
+			const results = await this.pollProcesses(
+				[downloadProcess],
+				pollInitialWaitTime,
+				pollMaximumWaitTime,
+			);
+
+			const completedProcess = results.find(
+				(p) => p.process_id === downloadProcess.process_id,
+			);
+			if (!completedProcess) {
+				throw new LokaliseError(
+					`Process ${downloadProcess.process_id} not found after polling`,
+					500,
+				);
+			}
 
 			this.logMsg(
 				"debug",
@@ -82,8 +95,15 @@ export class LokaliseDownload extends LokaliseFileExchange {
 					completedProcess.details as DownloadedFileProcessDetails;
 				translationsBundleURL = completedProcessDetails.download_url;
 			} else {
+				this.logMsg(
+					"warn",
+					`Process ended with status=${completedProcess.status}`,
+				);
+
 				throw new LokaliseError(
-					`Download process took too long to finalize; gave up after ${pollMaximumWaitTime}ms`,
+					`Download process took too long to finalize; ` +
+						`configured=${String(processDownloadFileParams?.pollMaximumWaitTime)} ` +
+						`effective=${pollMaximumWaitTime}ms`,
 					500,
 				);
 			}
