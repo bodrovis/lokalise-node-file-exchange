@@ -40,11 +40,11 @@
 		"@types/yauzl": "^2.10.3",
 		"@vitest/coverage-v8": "^4.0.3",
 		"mock-fs": "^5.4.1",
+		"patch-package": "^8.0.1",
 		"tsup": "^8.3.0",
 		"typescript": "^5.8.2",
 		"undici": "^7.0.0",
-		"vitest": "^4.0.3",
-		"patch-package": "^8.0.1"
+		"vitest": "^4.0.3"
 	},
 	"bugs": {
 		"url": "https://github.com/bodrovis/lokalise-node-file-exchange/issues"
