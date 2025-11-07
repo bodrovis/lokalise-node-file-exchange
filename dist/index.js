@@ -226,10 +226,6 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
       for (const { id, process: process2 } of batch) {
         if (!process2) continue;
         processMap.set(id, process2);
-        this.logMsg(
-          "debug",
-          `Process ID: ${id}, status: ${process2.status ?? "missing"}`
-        );
         if (_LokaliseFileExchange.isFinishedStatus(process2.status)) {
           this.logMsg(
             "debug",
@@ -295,10 +291,6 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   async getUpdatedProcess(processId) {
     this.logMsg("debug", `Requesting update for process ID: ${processId}`);
     const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
-    this.logMsg(
-      "debug",
-      `Process ID: ${updatedProcess.process_id}, status: ${updatedProcess.status ?? "missing"}`
-    );
     if (updatedProcess.status) {
       this.logMsg(
         "debug",

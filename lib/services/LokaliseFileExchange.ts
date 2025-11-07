@@ -234,18 +234,12 @@ export class LokaliseFileExchange {
 				didFastFollow = true;
 			}
 
-			// ОБНОВЛЯЕМ через ПУЛ
 			const ids = [...pendingProcessIds];
 			const batch = await this.fetchProcessesBatch(ids, concurrency);
 
 			for (const { id, process } of batch) {
-				if (!process) continue; // ошибка уже залогирована
+				if (!process) continue;
 				processMap.set(id, process);
-
-				this.logMsg(
-					"debug",
-					`Process ID: ${id}, status: ${process.status ?? "missing"}`,
-				);
 
 				if (LokaliseFileExchange.isFinishedStatus(process.status)) {
 					this.logMsg(
@@ -282,7 +276,6 @@ export class LokaliseFileExchange {
 			);
 		}
 
-		// Финальный добор через тот же пул, чтобы не стрелять веером
 		if (pendingProcessIds.size > 0) {
 			this.logMsg(
 				"debug",
@@ -328,11 +321,6 @@ export class LokaliseFileExchange {
 		const updatedProcess = await this.apiClient
 			.queuedProcesses()
 			.get(processId, { project_id: this.projectId });
-
-		this.logMsg(
-			"debug",
-			`Process ID: ${updatedProcess.process_id}, status: ${updatedProcess.status ?? "missing"}`,
-		);
 
 		if (updatedProcess.status) {
 			this.logMsg(
