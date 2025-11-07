@@ -304,8 +304,13 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    * @returns A promise that resolves to the updated queued process.
    */
   async getUpdatedProcess(processId) {
+    this.logMsg("debug", `Requesting update for process ID: ${processId}`);
     const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
-    if (!updatedProcess.status) {
+    this.logMsg("debug", updatedProcess);
+    if (updatedProcess.status) {
+      this.logMsg("debug", `Process ID: ${updatedProcess.process_id}, status: ${updatedProcess.status}`);
+    } else {
+      this.logMsg("debug", `Process ID: ${updatedProcess.process_id}, status is missing, setting to "queued"`);
       updatedProcess.status = "queued";
     }
     return updatedProcess;

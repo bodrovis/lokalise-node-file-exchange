@@ -200,7 +200,7 @@ export class LokaliseFileExchange {
 		const pendingProcessIds = new Set<string>();
 
 		this.logMsg("debug", "Initial processes check...");
-		
+
 		for (const process of processes) {
 			if (process.status) {
 				this.logMsg("debug", `Process ID: ${process.process_id}, status: ${process.status}`);
@@ -320,12 +320,19 @@ export class LokaliseFileExchange {
 	 * @returns A promise that resolves to the updated queued process.
 	 */
 	protected async getUpdatedProcess(processId: string): Promise<QueuedProcess> {
+		this.logMsg("debug", `Requesting update for process ID: ${processId}`);
+
 		const updatedProcess = await this.apiClient
 			.queuedProcesses()
 			.get(processId, { project_id: this.projectId });
 
-		if (!updatedProcess.status) {
-			updatedProcess.status = "queued"; // Ensure missing status is defaulted
+		this.logMsg("debug", updatedProcess);
+
+		if (updatedProcess.status) {
+			this.logMsg("debug", `Process ID: ${updatedProcess.process_id}, status: ${updatedProcess.status}`);
+		} else {
+			this.logMsg("debug", `Process ID: ${updatedProcess.process_id}, status is missing, setting to "queued"`);
+			updatedProcess.status = "queued";
 		}
 
 		return updatedProcess;
