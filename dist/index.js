@@ -201,8 +201,12 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     let waitTime = initialWaitTime;
     const processMap = /* @__PURE__ */ new Map();
     const pendingProcessIds = /* @__PURE__ */ new Set();
+    this.logMsg("debug", "Initial processes check...");
     for (const process2 of processes) {
-      if (!process2.status) {
+      if (process2.status) {
+        this.logMsg("debug", `Process ID: ${process2.process_id}, status: ${process2.status}`);
+      } else {
+        this.logMsg("debug", `Process ID: ${process2.process_id}, status is missing, setting to "queued"`);
         process2.status = "queued";
       }
       processMap.set(process2.process_id, process2);

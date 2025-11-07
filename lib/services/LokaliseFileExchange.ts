@@ -199,8 +199,13 @@ export class LokaliseFileExchange {
 		// Initialize processMap and set a default status if missing
 		const pendingProcessIds = new Set<string>();
 
+		this.logMsg("debug", "Initial processes check...");
+		
 		for (const process of processes) {
-			if (!process.status) {
+			if (process.status) {
+				this.logMsg("debug", `Process ID: ${process.process_id}, status: ${process.status}`);
+			} else {
+				this.logMsg("debug", `Process ID: ${process.process_id}, status is missing, setting to "queued"`);
 				process.status = "queued"; // Assign default status if missing
 			}
 
