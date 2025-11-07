@@ -172,7 +172,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 					},
 				}),
 			).rejects.toThrow(
-				`Download process took too long to finalize; configured=${pollMaximumWaitTime} effective=${pollMaximumWaitTime}ms`,
+				`Download process did not finish within ${pollMaximumWaitTime}ms (last status=running)`,
 			);
 		});
 
@@ -215,7 +215,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 					},
 				}),
 			).rejects.toThrow(
-				"Lokalise returned finished process without a download_url",
+				"Lokalise returned finished process without a valid download_url",
 			);
 		});
 

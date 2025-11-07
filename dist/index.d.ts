@@ -112,6 +112,8 @@ interface QueuedUploadProcessesWithErrors {
 interface RetryParams {
     maxRetries: number;
     initialSleepTime: number;
+    jitterRatio: number;
+    rng: () => number;
 }
 
 interface UploadTranslationParams {
@@ -148,11 +150,11 @@ declare class LokaliseFileExchange {
      * Default retry parameters for API requests.
      */
     private static readonly defaultRetryParams;
-    private static readonly PENDING_STATUSES;
     private static readonly FINISHED_STATUSES;
     private static readonly RETRYABLE_CODES;
+    protected static readonly maxConcurrentProcesses = 6;
     private static isPendingStatus;
-    private static isFinishedStatus;
+    static isFinishedStatus(status?: string | null): boolean;
     /**
      * Creates a new instance of LokaliseFileExchange.
      *
@@ -168,7 +170,7 @@ declare class LokaliseFileExchange {
     /**
      * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
      */
-    protected pollProcesses(processes: QueuedProcess[], initialWaitTime: number, maxWaitTime: number): Promise<QueuedProcess[]>;
+    protected pollProcesses(processes: QueuedProcess[], initialWaitTime: number, maxWaitTime: number, concurrency?: number): Promise<QueuedProcess[]>;
     /**
      * Determines if a given error is eligible for retry.
      */
@@ -185,6 +187,11 @@ declare class LokaliseFileExchange {
      * Validates the required client configuration parameters.
      */
     private validateParams;
+    protected runWithConcurrencyLimit<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]>;
+    protected fetchProcessesBatch(processIds: string[], concurrency?: number): Promise<Array<{
+        id: string;
+        process?: QueuedProcess;
+    }>>;
     /**
      * Pauses execution for the specified number of milliseconds.
      */
@@ -279,7 +286,6 @@ declare class LokaliseDownload extends LokaliseFileExchange {
  * Handles uploading translation files to Lokalise.
  */
 declare class LokaliseUpload extends LokaliseFileExchange {
-    private static readonly maxConcurrentProcesses;
     private static readonly defaultPollingParams;
     /**
      * Collects files, uploads them to Lokalise, and optionally polls for process completion, returning both processes and errors.

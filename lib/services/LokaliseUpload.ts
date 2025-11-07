@@ -16,8 +16,6 @@ import { LokaliseFileExchange } from "./LokaliseFileExchange.js";
  * Handles uploading translation files to Lokalise.
  */
 export class LokaliseUpload extends LokaliseFileExchange {
-	private static readonly maxConcurrentProcesses = 6;
-
 	private static readonly defaultPollingParams = {
 		pollStatuses: false,
 		pollInitialWaitTime: 1000,
@@ -187,37 +185,28 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		const projectRoot = process.cwd();
 		const queuedProcesses: QueuedProcess[] = [];
 		const errors: FileUploadError[] = [];
-		const fileQueue = [...files];
 
-		const pool = new Array(LokaliseUpload.maxConcurrentProcesses)
-			.fill(null)
-			.map(() =>
-				(async () => {
-					while (fileQueue.length > 0) {
-						const file = fileQueue.shift();
-						if (!file) {
-							break;
-						}
+		await this.runWithConcurrencyLimit(
+			files,
+			LokaliseUpload.maxConcurrentProcesses,
+			async (file) => {
+				try {
+					const processedFileParams = await this.processFile(
+						file,
+						projectRoot,
+						processParams,
+					);
+					const queued = await this.uploadSingleFile({
+						...baseUploadFileParams,
+						...processedFileParams,
+					});
+					queuedProcesses.push(queued);
+				} catch (error) {
+					errors.push({ file, error });
+				}
+			},
+		);
 
-						try {
-							const processedFileParams = await this.processFile(
-								file,
-								projectRoot,
-								processParams,
-							);
-							const queuedProcess = await this.uploadSingleFile({
-								...baseUploadFileParams,
-								...processedFileParams,
-							});
-							queuedProcesses.push(queuedProcess);
-						} catch (error) {
-							errors.push({ file, error });
-						}
-					}
-				})(),
-			);
-
-		await Promise.all(pool);
 		return { processes: queuedProcesses, errors };
 	}
 

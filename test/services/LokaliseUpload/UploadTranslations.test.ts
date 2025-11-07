@@ -3,7 +3,7 @@ import path from "node:path";
 import mock from "mock-fs";
 import { MockAgent, setGlobalDispatcher } from "undici";
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
-import { LokaliseUpload } from "../../../lib/services/LokaliseUpload.js";
+import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
 import type { Interceptable } from "../../setup.js";
 import {
 	afterAll,
@@ -19,7 +19,7 @@ import {
 describe("LokaliseUpload: uploadTranslations()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
 	const apiKey = process.env.API_KEY as string;
-	let lokaliseUpload: LokaliseUpload;
+	let lokaliseUpload: FakeLokaliseUpload;
 	let mockAgent: MockAgent;
 	let mockPool: Interceptable;
 
@@ -35,7 +35,7 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 	});
 
 	beforeEach(() => {
-		lokaliseUpload = new LokaliseUpload({ apiKey }, { projectId });
+		lokaliseUpload = new FakeLokaliseUpload({ apiKey }, { projectId });
 
 		mock({
 			"./locales": {

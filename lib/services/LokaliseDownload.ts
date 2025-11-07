@@ -85,10 +85,11 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				);
 			}
 
-			if (!completedProcess.status) {
+			if (!LokaliseFileExchange.isFinishedStatus(completedProcess.status)) {
 				throw new LokaliseError(
-					`Process ${completedProcess.process_id} completed without status (not finalized by Lokalise).`,
-					502,
+					`Download process did not finish within ${pollMaximumWaitTime}ms` +
+						`${completedProcess.status ? ` (last status=${completedProcess.status})` : " (status missing)"}`,
+					504,
 				);
 			}
 
@@ -104,8 +105,13 @@ export class LokaliseDownload extends LokaliseFileExchange {
 
 				const url = details?.download_url;
 				if (!url || typeof url !== "string") {
+					this.logMsg(
+						"warn",
+						"Process finished but details.download_url is missing or invalid",
+						details,
+					);
 					throw new LokaliseError(
-						"Lokalise returned finished process without a download_url",
+						"Lokalise returned finished process without a valid download_url",
 						502,
 					);
 				}
@@ -115,10 +121,10 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				completedProcess.status === "failed" ||
 				completedProcess.status === "cancelled"
 			) {
+				const msg = completedProcess.message?.trim();
 				throw new LokaliseError(
-					`Process ended with status=${completedProcess.status}${
-						completedProcess.message ? `: ${completedProcess.message}` : ""
-					}`,
+					`Process ${completedProcess.process_id} ended with status=${completedProcess.status}` +
+						(msg ? `: ${msg}` : ""),
 					502,
 				);
 			} else {
@@ -220,7 +226,10 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	): Promise<string> {
 		const bundleURL = this.assertHttpUrl(url);
 
-		const uid = `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
+		const uid =
+			crypto.randomUUID?.() ??
+			`${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
+
 		const tempZipPath = path.join(os.tmpdir(), `lokalise-${uid}.zip`);
 		let response: Response;
 

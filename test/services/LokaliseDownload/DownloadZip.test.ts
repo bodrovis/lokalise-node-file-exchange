@@ -61,7 +61,11 @@ describe("LokaliseDownload: downloadZip()", () => {
 				(filePath): fs.WriteStream => {
 					const { Writable } = require("node:stream");
 					const stream = new Writable({
-						write(_chunk, _encoding, callback) {
+						write(
+							_chunk: unknown,
+							_encoding: BufferEncoding,
+							callback: (err?: Error | null) => void,
+						) {
 							callback(); // Simulate writing to the stream
 						},
 					});

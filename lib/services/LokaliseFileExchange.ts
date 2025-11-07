@@ -49,17 +49,12 @@ export class LokaliseFileExchange {
 	/**
 	 * Default retry parameters for API requests.
 	 */
-	private static readonly defaultRetryParams: RetryParams = {
+	private static readonly defaultRetryParams: Required<RetryParams> = {
 		maxRetries: 3,
 		initialSleepTime: 1000,
+		jitterRatio: 0.2,
+		rng: Math.random,
 	};
-
-	private static readonly PENDING_STATUSES = [
-		"queued",
-		"pre_processing",
-		"running",
-		"post_processing",
-	] as const;
 
 	private static readonly FINISHED_STATUSES = [
 		"finished",
@@ -69,17 +64,13 @@ export class LokaliseFileExchange {
 
 	private static readonly RETRYABLE_CODES = [408, 429];
 
+	protected static readonly maxConcurrentProcesses = 6;
+
 	private static isPendingStatus(status?: string | null): boolean {
-		// отсутствие статуса считаем pending
-		return (
-			status == null ||
-			(LokaliseFileExchange.PENDING_STATUSES as readonly string[]).includes(
-				status,
-			)
-		);
+		return !LokaliseFileExchange.isFinishedStatus(status);
 	}
 
-	private static isFinishedStatus(status?: string | null): boolean {
+	public static isFinishedStatus(status?: string | null): boolean {
 		return (
 			status != null &&
 			(LokaliseFileExchange.FINISHED_STATUSES as readonly string[]).includes(
@@ -146,7 +137,7 @@ export class LokaliseFileExchange {
 	protected async withExponentialBackoff<T>(
 		operation: () => Promise<T>,
 	): Promise<T> {
-		const { maxRetries, initialSleepTime } = this.retryParams;
+		const { maxRetries, initialSleepTime, jitterRatio, rng } = this.retryParams;
 		this.logMsg(
 			"debug",
 			`Running operation with exponential backoff; max retries: ${maxRetries}`,
@@ -168,9 +159,13 @@ export class LokaliseFileExchange {
 						);
 					}
 
-					const backoff = initialSleepTime * 2 ** (attempt - 1);
-					this.logMsg("debug", `Waiting ${backoff}ms before retry...`);
-					await LokaliseFileExchange.sleep(backoff);
+					const base = initialSleepTime * 2 ** (attempt - 1);
+					const maxJitter = Math.floor(base * jitterRatio);
+					const jitter = maxJitter > 0 ? Math.floor(rng() * maxJitter) : 0;
+					const sleepMs = base + jitter;
+
+					this.logMsg("debug", `Waiting ${sleepMs}ms before retry...`);
+					await LokaliseFileExchange.sleep(sleepMs);
 				} else if (error instanceof LokaliseApiError) {
 					throw new LokaliseError(error.message, error.code, error.details);
 				} else {
@@ -190,6 +185,7 @@ export class LokaliseFileExchange {
 		processes: QueuedProcess[],
 		initialWaitTime: number,
 		maxWaitTime: number,
+		concurrency = LokaliseFileExchange.maxConcurrentProcesses,
 	): Promise<QueuedProcess[]> {
 		this.logMsg(
 			"debug",
@@ -204,23 +200,20 @@ export class LokaliseFileExchange {
 
 		this.logMsg("debug", "Initial processes check...");
 
-		for (const process of processes) {
-			if (process.status) {
+		for (const p of processes) {
+			if (p.status) {
 				this.logMsg(
 					"debug",
-					`Process ID: ${process.process_id}, status: ${process.status}`,
+					`Process ID: ${p.process_id}, status: ${p.status}`,
 				);
 			} else {
-				this.logMsg(
-					"debug",
-					`Process ID: ${process.process_id}, status is missing`,
-				);
+				this.logMsg("debug", `Process ID: ${p.process_id}, status is missing`);
 			}
 
-			processMap.set(process.process_id, process);
+			processMap.set(p.process_id, p);
 
-			if (LokaliseFileExchange.isPendingStatus(process.status)) {
-				pendingProcessIds.add(process.process_id);
+			if (LokaliseFileExchange.isPendingStatus(p.status)) {
+				pendingProcessIds.add(p.process_id);
 			}
 		}
 
@@ -241,29 +234,27 @@ export class LokaliseFileExchange {
 				didFastFollow = true;
 			}
 
-			await Promise.all(
-				[...pendingProcessIds].map(async (processId) => {
-					try {
-						const updated = await this.getUpdatedProcess(processId);
-						processMap.set(processId, updated);
+			// ОБНОВЛЯЕМ через ПУЛ
+			const ids = [...pendingProcessIds];
+			const batch = await this.fetchProcessesBatch(ids, concurrency);
 
-						this.logMsg(
-							"debug",
-							`Process ID: ${processId}, status: ${updated.status ?? "missing"}`,
-						);
+			for (const { id, process } of batch) {
+				if (!process) continue; // ошибка уже залогирована
+				processMap.set(id, process);
 
-						if (LokaliseFileExchange.isFinishedStatus(updated.status)) {
-							this.logMsg(
-								"debug",
-								`Process ${processId} completed with status=${updated.status}.`,
-							);
-							pendingProcessIds.delete(processId);
-						}
-					} catch (error) {
-						this.logMsg("warn", `Failed to fetch process ${processId}:`, error);
-					}
-				}),
-			);
+				this.logMsg(
+					"debug",
+					`Process ID: ${id}, status: ${process.status ?? "missing"}`,
+				);
+
+				if (LokaliseFileExchange.isFinishedStatus(process.status)) {
+					this.logMsg(
+						"debug",
+						`Process ${id} completed with status=${process.status}.`,
+					);
+					pendingProcessIds.delete(id);
+				}
+			}
 
 			if (pendingProcessIds.size === 0) {
 				this.logMsg("debug", "Finished polling. Pending processes IDs: 0");
@@ -291,25 +282,21 @@ export class LokaliseFileExchange {
 			);
 		}
 
+		// Финальный добор через тот же пул, чтобы не стрелять веером
 		if (pendingProcessIds.size > 0) {
 			this.logMsg(
 				"debug",
 				`Final refresh for ${pendingProcessIds.size} pending processes before return...`,
 			);
-			await Promise.all(
-				[...pendingProcessIds].map(async (processId) => {
-					try {
-						const updated = await this.getUpdatedProcess(processId);
-						processMap.set(processId, updated);
-					} catch (error) {
-						this.logMsg(
-							"warn",
-							`Final refresh failed for process ${processId}:`,
-							error,
-						);
-					}
-				}),
+
+			const finalBatch = await this.fetchProcessesBatch(
+				[...pendingProcessIds],
+				concurrency,
 			);
+
+			for (const { id, process } of finalBatch) {
+				if (process) processMap.set(id, process);
+			}
 		}
 
 		return Array.from(processMap.values());
@@ -342,7 +329,10 @@ export class LokaliseFileExchange {
 			.queuedProcesses()
 			.get(processId, { project_id: this.projectId });
 
-		this.logMsg("debug", updatedProcess);
+		this.logMsg(
+			"debug",
+			`Process ID: ${updatedProcess.process_id}, status: ${updatedProcess.status ?? "missing"}`,
+		);
 
 		if (updatedProcess.status) {
 			this.logMsg(
@@ -367,14 +357,55 @@ export class LokaliseFileExchange {
 			throw new LokaliseError("Invalid or missing Project ID.");
 		}
 
-		if (this.retryParams.maxRetries < 0) {
+		const { maxRetries, initialSleepTime, jitterRatio } = this.retryParams;
+
+		if (maxRetries < 0) {
 			throw new LokaliseError(
 				"maxRetries must be greater than or equal to zero.",
 			);
 		}
-		if (this.retryParams.initialSleepTime <= 0) {
+		if (initialSleepTime <= 0) {
 			throw new LokaliseError("initialSleepTime must be a positive value.");
 		}
+		if (jitterRatio < 0 || jitterRatio > 1)
+			throw new LokaliseError("jitterRatio must be between 0 and 1.");
+	}
+
+	protected async runWithConcurrencyLimit<T, R>(
+		items: T[],
+		limit: number,
+		worker: (item: T, index: number) => Promise<R>,
+	): Promise<R[]> {
+		const results = new Array<R>(items.length);
+		let i = 0;
+
+		const workers = new Array(Math.min(limit, items.length))
+			.fill(null)
+			.map(async () => {
+				while (true) {
+					const idx = i++;
+					if (idx >= items.length) break;
+					results[idx] = await worker(items[idx], idx);
+				}
+			});
+
+		await Promise.all(workers);
+		return results;
+	}
+
+	protected async fetchProcessesBatch(
+		processIds: string[],
+		concurrency = LokaliseFileExchange.maxConcurrentProcesses,
+	): Promise<Array<{ id: string; process?: QueuedProcess }>> {
+		return this.runWithConcurrencyLimit(processIds, concurrency, async (id) => {
+			try {
+				const updated = await this.getUpdatedProcess(id);
+				return { id, process: updated };
+			} catch (error) {
+				this.logMsg("warn", `Failed to fetch process ${id}:`, error);
+				return { id };
+			}
+		});
 	}
 
 	/**

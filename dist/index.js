@@ -85,24 +85,19 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    */
   static defaultRetryParams = {
     maxRetries: 3,
-    initialSleepTime: 1e3
+    initialSleepTime: 1e3,
+    jitterRatio: 0.2,
+    rng: Math.random
   };
-  static PENDING_STATUSES = [
-    "queued",
-    "pre_processing",
-    "running",
-    "post_processing"
-  ];
   static FINISHED_STATUSES = [
     "finished",
     "cancelled",
     "failed"
   ];
   static RETRYABLE_CODES = [408, 429];
+  static maxConcurrentProcesses = 6;
   static isPendingStatus(status) {
-    return status == null || _LokaliseFileExchange.PENDING_STATUSES.includes(
-      status
-    );
+    return !_LokaliseFileExchange.isFinishedStatus(status);
   }
   static isFinishedStatus(status) {
     return status != null && _LokaliseFileExchange.FINISHED_STATUSES.includes(
@@ -154,7 +149,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
    * Executes an asynchronous operation with exponential backoff retry logic.
    */
   async withExponentialBackoff(operation) {
-    const { maxRetries, initialSleepTime } = this.retryParams;
+    const { maxRetries, initialSleepTime, jitterRatio, rng } = this.retryParams;
     this.logMsg(
       "debug",
       `Running operation with exponential backoff; max retries: ${maxRetries}`
@@ -173,9 +168,12 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
               error.details
             );
           }
-          const backoff = initialSleepTime * 2 ** (attempt - 1);
-          this.logMsg("debug", `Waiting ${backoff}ms before retry...`);
-          await _LokaliseFileExchange.sleep(backoff);
+          const base = initialSleepTime * 2 ** (attempt - 1);
+          const maxJitter = Math.floor(base * jitterRatio);
+          const jitter = maxJitter > 0 ? Math.floor(rng() * maxJitter) : 0;
+          const sleepMs = base + jitter;
+          this.logMsg("debug", `Waiting ${sleepMs}ms before retry...`);
+          await _LokaliseFileExchange.sleep(sleepMs);
         } else if (error instanceof LokaliseApiError) {
           throw new LokaliseError(error.message, error.code, error.details);
         } else {
@@ -188,7 +186,7 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   /**
    * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
    */
-  async pollProcesses(processes, initialWaitTime, maxWaitTime) {
+  async pollProcesses(processes, initialWaitTime, maxWaitTime, concurrency = _LokaliseFileExchange.maxConcurrentProcesses) {
     this.logMsg(
       "debug",
       `Start polling processes. Total processes count: ${processes.length}`
@@ -198,21 +196,18 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     const processMap = /* @__PURE__ */ new Map();
     const pendingProcessIds = /* @__PURE__ */ new Set();
     this.logMsg("debug", "Initial processes check...");
-    for (const process2 of processes) {
-      if (process2.status) {
+    for (const p of processes) {
+      if (p.status) {
         this.logMsg(
           "debug",
-          `Process ID: ${process2.process_id}, status: ${process2.status}`
+          `Process ID: ${p.process_id}, status: ${p.status}`
         );
       } else {
-        this.logMsg(
-          "debug",
-          `Process ID: ${process2.process_id}, status is missing`
-        );
+        this.logMsg("debug", `Process ID: ${p.process_id}, status is missing`);
       }
-      processMap.set(process2.process_id, process2);
-      if (_LokaliseFileExchange.isPendingStatus(process2.status)) {
-        pendingProcessIds.add(process2.process_id);
+      processMap.set(p.process_id, p);
+      if (_LokaliseFileExchange.isPendingStatus(p.status)) {
+        pendingProcessIds.add(p.process_id);
       }
     }
     let didFastFollow = false;
@@ -226,27 +221,23 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
         await _LokaliseFileExchange.sleep(200);
         didFastFollow = true;
       }
-      await Promise.all(
-        [...pendingProcessIds].map(async (processId) => {
-          try {
-            const updated = await this.getUpdatedProcess(processId);
-            processMap.set(processId, updated);
-            this.logMsg(
-              "debug",
-              `Process ID: ${processId}, status: ${updated.status ?? "missing"}`
-            );
-            if (_LokaliseFileExchange.isFinishedStatus(updated.status)) {
-              this.logMsg(
-                "debug",
-                `Process ${processId} completed with status=${updated.status}.`
-              );
-              pendingProcessIds.delete(processId);
-            }
-          } catch (error) {
-            this.logMsg("warn", `Failed to fetch process ${processId}:`, error);
-          }
-        })
-      );
+      const ids = [...pendingProcessIds];
+      const batch = await this.fetchProcessesBatch(ids, concurrency);
+      for (const { id, process: process2 } of batch) {
+        if (!process2) continue;
+        processMap.set(id, process2);
+        this.logMsg(
+          "debug",
+          `Process ID: ${id}, status: ${process2.status ?? "missing"}`
+        );
+        if (_LokaliseFileExchange.isFinishedStatus(process2.status)) {
+          this.logMsg(
+            "debug",
+            `Process ${id} completed with status=${process2.status}.`
+          );
+          pendingProcessIds.delete(id);
+        }
+      }
       if (pendingProcessIds.size === 0) {
         this.logMsg("debug", "Finished polling. Pending processes IDs: 0");
         break;
@@ -273,20 +264,13 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
         "debug",
         `Final refresh for ${pendingProcessIds.size} pending processes before return...`
       );
-      await Promise.all(
-        [...pendingProcessIds].map(async (processId) => {
-          try {
-            const updated = await this.getUpdatedProcess(processId);
-            processMap.set(processId, updated);
-          } catch (error) {
-            this.logMsg(
-              "warn",
-              `Final refresh failed for process ${processId}:`,
-              error
-            );
-          }
-        })
+      const finalBatch = await this.fetchProcessesBatch(
+        [...pendingProcessIds],
+        concurrency
       );
+      for (const { id, process: process2 } of finalBatch) {
+        if (process2) processMap.set(id, process2);
+      }
     }
     return Array.from(processMap.values());
   }
@@ -311,7 +295,10 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
   async getUpdatedProcess(processId) {
     this.logMsg("debug", `Requesting update for process ID: ${processId}`);
     const updatedProcess = await this.apiClient.queuedProcesses().get(processId, { project_id: this.projectId });
-    this.logMsg("debug", updatedProcess);
+    this.logMsg(
+      "debug",
+      `Process ID: ${updatedProcess.process_id}, status: ${updatedProcess.status ?? "missing"}`
+    );
     if (updatedProcess.status) {
       this.logMsg(
         "debug",
@@ -332,14 +319,41 @@ var LokaliseFileExchange = class _LokaliseFileExchange {
     if (!this.projectId || typeof this.projectId !== "string") {
       throw new LokaliseError("Invalid or missing Project ID.");
     }
-    if (this.retryParams.maxRetries < 0) {
+    const { maxRetries, initialSleepTime, jitterRatio } = this.retryParams;
+    if (maxRetries < 0) {
       throw new LokaliseError(
         "maxRetries must be greater than or equal to zero."
       );
     }
-    if (this.retryParams.initialSleepTime <= 0) {
+    if (initialSleepTime <= 0) {
       throw new LokaliseError("initialSleepTime must be a positive value.");
     }
+    if (jitterRatio < 0 || jitterRatio > 1)
+      throw new LokaliseError("jitterRatio must be between 0 and 1.");
+  }
+  async runWithConcurrencyLimit(items, limit, worker) {
+    const results = new Array(items.length);
+    let i = 0;
+    const workers = new Array(Math.min(limit, items.length)).fill(null).map(async () => {
+      while (true) {
+        const idx = i++;
+        if (idx >= items.length) break;
+        results[idx] = await worker(items[idx], idx);
+      }
+    });
+    await Promise.all(workers);
+    return results;
+  }
+  async fetchProcessesBatch(processIds, concurrency = _LokaliseFileExchange.maxConcurrentProcesses) {
+    return this.runWithConcurrencyLimit(processIds, concurrency, async (id) => {
+      try {
+        const updated = await this.getUpdatedProcess(id);
+        return { id, process: updated };
+      } catch (error) {
+        this.logMsg("warn", `Failed to fetch process ${id}:`, error);
+        return { id };
+      }
+    });
   }
   /**
    * Pauses execution for the specified number of milliseconds.
@@ -405,10 +419,10 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
           500
         );
       }
-      if (!completedProcess.status) {
+      if (!LokaliseFileExchange.isFinishedStatus(completedProcess.status)) {
         throw new LokaliseError(
-          `Process ${completedProcess.process_id} completed without status (not finalized by Lokalise).`,
-          502
+          `Download process did not finish within ${pollMaximumWaitTime}ms${completedProcess.status ? ` (last status=${completedProcess.status})` : " (status missing)"}`,
+          504
         );
       }
       this.logMsg(
@@ -419,15 +433,21 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
         const details = completedProcess.details;
         const url = details?.download_url;
         if (!url || typeof url !== "string") {
+          this.logMsg(
+            "warn",
+            "Process finished but details.download_url is missing or invalid",
+            details
+          );
           throw new LokaliseError(
-            "Lokalise returned finished process without a download_url",
+            "Lokalise returned finished process without a valid download_url",
             502
           );
         }
         translationsBundleURL = url;
       } else if (completedProcess.status === "failed" || completedProcess.status === "cancelled") {
+        const msg = completedProcess.message?.trim();
         throw new LokaliseError(
-          `Process ended with status=${completedProcess.status}${completedProcess.message ? `: ${completedProcess.message}` : ""}`,
+          `Process ${completedProcess.process_id} ended with status=${completedProcess.status}` + (msg ? `: ${msg}` : ""),
           502
         );
       } else {
@@ -504,7 +524,7 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
    */
   async downloadZip(url, downloadTimeout = 0) {
     const bundleURL = this.assertHttpUrl(url);
-    const uid = `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
+    const uid = crypto.randomUUID?.() ?? `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
     const tempZipPath = path.join(os.tmpdir(), `lokalise-${uid}.zip`);
     let response;
     const signal = downloadTimeout > 0 ? AbortSignal.timeout(downloadTimeout) : void 0;
@@ -653,7 +673,6 @@ var LokaliseDownload = class _LokaliseDownload extends LokaliseFileExchange {
 import fs2 from "fs";
 import path2 from "path";
 var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
-  static maxConcurrentProcesses = 6;
   static defaultPollingParams = {
     pollStatuses: false,
     pollInitialWaitTime: 1e3,
@@ -790,32 +809,26 @@ var LokaliseUpload = class _LokaliseUpload extends LokaliseFileExchange {
     const projectRoot = process.cwd();
     const queuedProcesses = [];
     const errors = [];
-    const fileQueue = [...files];
-    const pool = new Array(_LokaliseUpload.maxConcurrentProcesses).fill(null).map(
-      () => (async () => {
-        while (fileQueue.length > 0) {
-          const file = fileQueue.shift();
-          if (!file) {
-            break;
-          }
-          try {
-            const processedFileParams = await this.processFile(
-              file,
-              projectRoot,
-              processParams
-            );
-            const queuedProcess = await this.uploadSingleFile({
-              ...baseUploadFileParams,
-              ...processedFileParams
-            });
-            queuedProcesses.push(queuedProcess);
-          } catch (error) {
-            errors.push({ file, error });
-          }
+    await this.runWithConcurrencyLimit(
+      files,
+      _LokaliseUpload.maxConcurrentProcesses,
+      async (file) => {
+        try {
+          const processedFileParams = await this.processFile(
+            file,
+            projectRoot,
+            processParams
+          );
+          const queued = await this.uploadSingleFile({
+            ...baseUploadFileParams,
+            ...processedFileParams
+          });
+          queuedProcesses.push(queued);
+        } catch (error) {
+          errors.push({ file, error });
         }
-      })()
+      }
     );
-    await Promise.all(pool);
     return { processes: queuedProcesses, errors };
   }
   /**
