@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.2 (10-Nov-2025)
+
+* Introduce worker pools for process checks to respect parallel requests limits
+* Added jitter for retry params
+
 ## 4.0.1 (07-Nov-2025)
 
 * Fixed edge cases related to process polling and async downloads
