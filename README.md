@@ -338,7 +338,7 @@ Licensed under BSD 3 Clause
 
 (c) [Ilya Krukowski](https://bodrovis.tech/)
 
-[npm-downloads-image]: https://badgen.net/npm/dm/lokalise-file-exchange
+[npm-downloads-image]: https://img.shields.io/npm/dm/lokalise-file-exchange
 [npm-downloads-url]: https://npmcharts.com/compare/lokalise-file-exchange?minimal=true
 [coverage-image]: https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange/coverage.svg
 [coverage-url]: https://qlty.sh/gh/bodrovis/projects/lokalise-node-file-exchange
