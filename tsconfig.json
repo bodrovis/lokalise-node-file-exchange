@@ -17,7 +17,8 @@
 		"noImplicitOverride": true,
 		"verbatimModuleSyntax": true,
 		"exactOptionalPropertyTypes": true,
-		"types": ["vitest/globals"]
+		"noUncheckedIndexedAccess": true,
+		"useUnknownInCatchVariables": true
 	},
 	"include": ["lib/**/*"],
 	"exclude": ["node_modules", "dist"]

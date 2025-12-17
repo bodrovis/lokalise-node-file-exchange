@@ -373,7 +373,12 @@ export class LokaliseFileExchange {
 				while (true) {
 					const idx = i++;
 					if (idx >= items.length) break;
-					results[idx] = await worker(items[idx], idx);
+					const item = items[idx];
+					if (item === undefined) {
+						throw new Error(`Missing item at index ${idx}`);
+					}
+
+					results[idx] = await worker(item, idx);
 				}
 			});
 
