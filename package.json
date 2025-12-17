@@ -30,7 +30,7 @@
 	},
 	"dependencies": {
 		"@lokalise/node-api": "^15.0.0",
-		"kliedz": "^1.0.1",
+		"kliedz": "^2.0.0",
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {
