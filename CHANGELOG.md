@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.3 (14-Jan-2026)
+
+* Minor code changes, dependency updates
+
 ## 4.0.2 (10-Nov-2025)
 
 * Introduce worker pools for process checks to respect parallel requests limits
