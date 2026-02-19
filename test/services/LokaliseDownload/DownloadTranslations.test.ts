@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { FileFormat } from "@lokalise/node-api";
+import type { FileFormat, QueuedProcess } from "@lokalise/node-api";
 import mockFs from "mock-fs";
+import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
 import {
 	afterEach,
@@ -104,6 +105,136 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			).rejects.toThrow(
 				"End of central directory record signature not found. Either not a zip file, or file is truncated.",
 			);
+		});
+
+		it("should throw if async download process is not found after polling", async () => {
+			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
+
+			const downloadProcess = {
+				process_id: "proc-123",
+				status: "queued",
+				type: "file-import",
+			} as unknown as QueuedProcess;
+
+			vi.spyOn(downloader, "getTranslationsBundleAsync").mockResolvedValue(
+				downloadProcess,
+			);
+
+			vi.spyOn(downloader, "pollProcesses").mockResolvedValue([
+				{
+					process_id: "another-id",
+					status: "finished",
+					type: "file-import",
+				} as unknown as QueuedProcess,
+			]);
+
+			const downloadZipSpy = vi.spyOn(downloader, "downloadZip");
+
+			await expect(
+				downloader.downloadTranslations({
+					downloadFileParams,
+					extractParams,
+					processDownloadFileParams: {
+						asyncDownload: true,
+						pollInitialWaitTime: 100,
+						pollMaximumWaitTime: 1_000,
+					},
+				}),
+			).rejects.toThrow(
+				new LokaliseError(
+					`Process ${downloadProcess.process_id} not found after polling`,
+					500,
+				),
+			);
+
+			expect(downloadZipSpy).not.toHaveBeenCalled();
+		});
+
+		it("should throw LokaliseError when async download process failed with message", async () => {
+			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
+
+			const downloadProcess = {
+				process_id: "proc-failed",
+				status: "queued",
+				type: "file-import",
+			} as unknown as QueuedProcess;
+
+			vi.spyOn(downloader, "getTranslationsBundleAsync").mockResolvedValue(
+				downloadProcess,
+			);
+
+			vi.spyOn(downloader, "pollProcesses").mockResolvedValue([
+				{
+					process_id: "proc-failed",
+					status: "failed",
+					type: "file-import",
+					message: "Something went wrong",
+				} as unknown as QueuedProcess,
+			]);
+
+			const downloadZipSpy = vi.spyOn(downloader, "downloadZip");
+
+			await expect(
+				downloader.downloadTranslations({
+					downloadFileParams,
+					extractParams,
+					processDownloadFileParams: {
+						asyncDownload: true,
+						pollInitialWaitTime: 100,
+						pollMaximumWaitTime: 1000,
+					},
+				}),
+			).rejects.toThrow(
+				new LokaliseError(
+					"Process proc-failed ended with status=failed: Something went wrong",
+					502,
+				),
+			);
+
+			expect(downloadZipSpy).not.toHaveBeenCalled();
+		});
+
+		it("should throw LokaliseError when async download process is cancelled without message", async () => {
+			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
+
+			const downloadProcess = {
+				process_id: "proc-cancelled",
+				status: "queued",
+				type: "file-import",
+			} as unknown as QueuedProcess;
+
+			vi.spyOn(downloader, "getTranslationsBundleAsync").mockResolvedValue(
+				downloadProcess,
+			);
+
+			vi.spyOn(downloader, "pollProcesses").mockResolvedValue([
+				{
+					process_id: "proc-cancelled",
+					status: "cancelled",
+					type: "file-import",
+				} as unknown as QueuedProcess,
+			]);
+
+			const downloadZipSpy = vi.spyOn(downloader, "downloadZip");
+
+			await expect(
+				downloader.downloadTranslations({
+					downloadFileParams,
+					extractParams,
+					processDownloadFileParams: {
+						asyncDownload: true,
+						pollInitialWaitTime: 100,
+						pollMaximumWaitTime: 1000,
+					},
+				}),
+			).rejects.toThrow(
+				new LokaliseError(
+					"Process proc-cancelled ended with status=cancelled",
+					502,
+				),
+			);
+
+			expect(downloadZipSpy).not.toHaveBeenCalled();
 		});
 	});
 

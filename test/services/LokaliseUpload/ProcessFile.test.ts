@@ -16,6 +16,7 @@ describe("LokaliseUpload: processFile()", () => {
 				"en.json": '{"key": "value"}',
 				"weird.fake_json": '{"en_GB": {"key": "value"}}',
 				"fr_FR.json": '{"clé": "valeur"}',
+				"no-lang": "plain content",
 				nested: {
 					"es.json": '{"clave": "valor"}',
 				},
@@ -78,6 +79,19 @@ describe("LokaliseUpload: processFile()", () => {
 				data: Buffer.from('{"schlüssel": "wert"}').toString("base64"),
 				filename: path.posix.join("other", "main.de-DE.json"),
 				lang_iso: "de-DE",
+			});
+		});
+
+		it("should use unknown when the language code is missing", async () => {
+			const result = await lokaliseUpload.processFile(
+				"/project/locales/no-lang",
+				"/project",
+			);
+
+			expect(result).toEqual({
+				data: Buffer.from("plain content").toString("base64"),
+				filename: "locales/no-lang",
+				lang_iso: "unknown",
 			});
 		});
 	});

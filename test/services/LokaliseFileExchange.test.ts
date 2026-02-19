@@ -7,10 +7,8 @@ import {
 	afterAll,
 	afterEach,
 	beforeAll,
-	beforeEach,
 	describe,
 	expect,
-	type Interceptable,
 	it,
 	MockAgent,
 	setGlobalDispatcher,
@@ -133,6 +131,17 @@ describe("LokaliseFileExchange", () => {
 					);
 				}).toThrow("initialSleepTime must be a positive value.");
 			});
+
+			it("should throw an error when jitterRatio is negative or greater than 1", () => {
+				expect(() => {
+					new LokaliseFileExchange(
+						{
+							apiKey: "abc123",
+						},
+						{ projectId: "123.abc", retryParams: { jitterRatio: -1 } },
+					);
+				}).toThrow("jitterRatio must be between 0 and 1.");
+			});
 		});
 
 		describe("withExponentialBackoff", () => {
@@ -161,7 +170,6 @@ describe("LokaliseFileExchange", () => {
 
 		describe("getUpdatedProcess", () => {
 			let mockAgent: MockAgent;
-			let mockPool: Interceptable;
 
 			beforeAll(() => {
 				mockAgent = new MockAgent();
@@ -177,10 +185,6 @@ describe("LokaliseFileExchange", () => {
 				vi.restoreAllMocks();
 			});
 
-			beforeEach(() => {
-				mockPool = mockAgent.get("https://api.lokalise.com");
-			});
-
 			it("should handle case when status is missing", async () => {
 				const projectId = "123.abc";
 				const processId = "123";
@@ -192,23 +196,26 @@ describe("LokaliseFileExchange", () => {
 					{ projectId },
 				);
 
-				mockPool
-					.intercept({
-						path: `/api2/projects/${projectId}/processes/${processId}`,
-						method: "GET",
-					})
-					.reply(200, {
-						project_id: projectId,
-						process: {
-							process_id: processId,
-							type: "file-import",
-						},
-					});
+				const apiClient = exchanger.getApiClient();
+
+				const getMock = vi.fn().mockResolvedValue({
+					project_id: projectId,
+					process_id: processId,
+					type: "file-import",
+				});
+
+				vi.spyOn(apiClient, "queuedProcesses").mockReturnValue({
+					get: getMock,
+				} as unknown as ReturnType<typeof apiClient.queuedProcesses>);
 
 				const process = await exchanger.getUpdatedProcess(processId);
 
+				expect(getMock).toHaveBeenCalledWith(processId, {
+					project_id: projectId,
+				});
+
 				expect(process.process_id).toEqual(processId);
-				expect(process.status).toEqual(undefined);
+				expect(process.status).toBeUndefined();
 			});
 		});
 
@@ -249,6 +256,89 @@ describe("LokaliseFileExchange", () => {
 				);
 
 				vi.useRealTimers();
+			});
+
+			it("should log status when it is present on process", async () => {
+				const exchanger = new FakeLokaliseFileExchange(
+					{ apiKey: "abc123" },
+					{ projectId: "123.abc" },
+				);
+
+				const loggerSpy = vi.spyOn(exchanger, "logMsg").mockResolvedValue();
+
+				const processId = "proc-1";
+				const processes: QueuedProcess[] = [
+					{
+						process_id: processId,
+						status: "finished",
+					} as unknown as QueuedProcess,
+				];
+
+				const result = await exchanger.pollProcesses(processes, 1000, 1000);
+
+				expect(result).toEqual(processes);
+
+				expect(loggerSpy).toHaveBeenCalledWith(
+					"debug",
+					`Process ID: ${processId}, status: finished`,
+				);
+
+				expect(loggerSpy).not.toHaveBeenCalledWith(
+					"debug",
+					`Process ID: ${processId}, status is missing`,
+				);
+			});
+
+			it("should throw if items array has missing entries", async () => {
+				const exchanger = new FakeLokaliseFileExchange(
+					{ apiKey: "abc123" },
+					{ projectId: "123.abc" },
+				);
+
+				const ids: string[] = new Array(2);
+				ids[1] = "123";
+
+				await expect(exchanger.fetchProcessesBatch(ids, 2)).rejects.toThrow(
+					"Missing item at index 0",
+				);
+			});
+
+			it("should use final batch to update processes when pending remain", async () => {
+				const exchanger = new FakeLokaliseFileExchange(
+					{ apiKey: "abc123" },
+					{ projectId: "123.abc" },
+				);
+
+				const pendingId = "proc-1";
+
+				const initialProcesses: QueuedProcess[] = [
+					{
+						process_id: pendingId,
+						status: "queued",
+					} as unknown as QueuedProcess,
+				];
+
+				const finalProcess: QueuedProcess = {
+					process_id: pendingId,
+					status: "finished",
+					type: "file-import",
+				} as unknown as QueuedProcess;
+
+				const fetchSpy = vi
+					.spyOn(exchanger, "fetchProcessesBatch")
+					.mockResolvedValue([{ id: pendingId, process: finalProcess }]);
+
+				const result = await exchanger.pollProcesses(
+					initialProcesses,
+					1000,
+					0, // maxWaitTime = 0 => while is ignored
+				);
+
+				expect(fetchSpy).toHaveBeenCalledTimes(1);
+				expect(fetchSpy).toHaveBeenCalledWith([pendingId], expect.any(Number));
+
+				expect(result).toHaveLength(1);
+				expect(result[0]).toEqual(finalProcess);
 			});
 		});
 	});

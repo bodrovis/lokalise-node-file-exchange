@@ -340,9 +340,17 @@ export class LokaliseUpload extends LokaliseFileExchange {
 
 		while (queue.length) {
 			const dir = queue.shift();
+
+			// Realistically, this should never happen:
+			/* v8 ignore start */
 			if (!dir) {
+				this.logMsg(
+					"debug",
+					`collectFiles: received falsy dir entry (${String(dir)}). This is unexpected and might indicate a bug.`,
+				);
 				continue;
 			}
+			/* v8 ignore stop */
 
 			const entries = await this.safeReadDir(dir);
 			for (const entry of entries) {

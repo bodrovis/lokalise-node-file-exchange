@@ -37,4 +37,11 @@ export class FakeLokaliseFileExchange extends LokaliseFileExchange {
 	public logMsg(level: LogLevel, ...args: unknown[]): void {
 		super.logMsg(level, ...args);
 	}
+
+	public async fetchProcessesBatch(
+		processIds: string[],
+		concurrency = LokaliseFileExchange.maxConcurrentProcesses,
+	): Promise<Array<{ id: string; process?: QueuedProcess }>> {
+		return await super.fetchProcessesBatch(processIds, concurrency);
+	}
 }

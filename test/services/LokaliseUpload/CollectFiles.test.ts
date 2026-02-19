@@ -171,6 +171,20 @@ describe("LokaliseUpload: collectFiles()", () => {
 			);
 		});
 
+		it("should throw an error for excludePatterns when a non-Error is thrown", async () => {
+			const badPattern = {
+				toString() {
+					throw "NON_ERROR";
+				},
+			} as unknown as RegExp;
+
+			await expect(
+				lokaliseUpload.collectFiles({
+					excludePatterns: [badPattern],
+				}),
+			).rejects.toThrow("Invalid excludePatterns: NON_ERROR");
+		});
+
 		it("should handle invalid or inaccessible directories gracefully", async () => {
 			mock({
 				"./locales": mock.directory({
