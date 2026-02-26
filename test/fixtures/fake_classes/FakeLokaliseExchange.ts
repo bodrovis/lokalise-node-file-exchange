@@ -1,5 +1,6 @@
 import type { LokaliseApi, QueuedProcess } from "@lokalise/node-api";
 import type { LogFunction, LogLevel, LogThreshold } from "kliedz";
+import type { RetryParams } from "../../../lib/interfaces/index.js";
 import { LokaliseFileExchange } from "../../../lib/services/LokaliseFileExchange.js";
 
 // Public morozov
@@ -43,5 +44,9 @@ export class FakeLokaliseFileExchange extends LokaliseFileExchange {
 		concurrency = LokaliseFileExchange.maxConcurrentProcesses,
 	): Promise<Array<{ id: string; process?: QueuedProcess }>> {
 		return await super.fetchProcessesBatch(processIds, concurrency);
+	}
+
+	public calculateSleepMs(retryParams: RetryParams, attempt: number): number {
+		return super.calculateSleepMs(retryParams, attempt);
 	}
 }

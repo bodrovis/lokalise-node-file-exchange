@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.1.0
+
+* Code enhancements
+* Increased test coverage
+
 ## 4.0.3 (14-Jan-2026)
 
 * Minor code changes, dependency updates

@@ -13,19 +13,23 @@ import type {
 } from "@lokalise/node-api";
 import yauzl from "yauzl";
 import { LokaliseError } from "../errors/LokaliseError.js";
-import type { DownloadTranslationParams } from "../interfaces/index.js";
+import type {
+	DownloadTranslationParams,
+	ProcessDownloadFileParams,
+} from "../interfaces/index.js";
 import { LokaliseFileExchange } from "./LokaliseFileExchange.js";
 
 /**
  * Handles downloading and extracting translation files from Lokalise.
  */
 export class LokaliseDownload extends LokaliseFileExchange {
-	private static readonly defaultProcessParams = {
-		asyncDownload: false,
-		pollInitialWaitTime: 1000,
-		pollMaximumWaitTime: 120_000,
-		bundleDownloadTimeout: 0,
-	};
+	private static readonly defaultProcessParams: Required<ProcessDownloadFileParams> =
+		{
+			asyncDownload: false,
+			pollInitialWaitTime: 1000,
+			pollMaximumWaitTime: 120_000,
+			bundleDownloadTimeout: 0,
+		};
 
 	private readonly streamPipeline = promisify(pipeline);
 
@@ -42,135 +46,22 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	}: DownloadTranslationParams): Promise<void> {
 		this.logMsg("debug", "Downloading translations from Lokalise...");
 
-		const {
-			asyncDownload,
-			pollInitialWaitTime,
-			pollMaximumWaitTime,
-			bundleDownloadTimeout,
-		} = {
-			...LokaliseDownload.defaultProcessParams,
-			...processDownloadFileParams,
-		};
+		const processParams = this.buildProcessParams(processDownloadFileParams);
 
-		let translationsBundleURL: string;
-
-		if (asyncDownload) {
-			this.logMsg("debug", "Async download mode enabled.");
-
-			const downloadProcess =
-				await this.getTranslationsBundleAsync(downloadFileParams);
-
-			this.logMsg(
-				"debug",
-				`Waiting for download process ID ${downloadProcess.process_id} to complete...`,
-			);
-			this.logMsg(
-				"debug",
-				`Effective waits: initial=${pollInitialWaitTime}ms, max=${pollMaximumWaitTime}ms`,
-			);
-
-			const results = await this.pollProcesses(
-				[downloadProcess],
-				pollInitialWaitTime,
-				pollMaximumWaitTime,
-			);
-
-			const completedProcess = results.find(
-				(p) => p.process_id === downloadProcess.process_id,
-			);
-
-			if (!completedProcess) {
-				throw new LokaliseError(
-					`Process ${downloadProcess.process_id} not found after polling`,
-					500,
-				);
-			}
-
-			if (!LokaliseFileExchange.isFinishedStatus(completedProcess.status)) {
-				throw new LokaliseError(
-					`Download process did not finish within ${pollMaximumWaitTime}ms` +
-						`${completedProcess.status ? ` (last status=${completedProcess.status})` : " (status missing)"}`,
-					504,
-				);
-			}
-
-			this.logMsg(
-				"debug",
-				`Download process status is ${completedProcess.status}`,
-			);
-
-			if (completedProcess.status === "finished") {
-				const details = completedProcess.details as
-					| (DownloadedFileProcessDetails & { download_url?: string })
-					| undefined;
-
-				const url = details?.download_url;
-				if (!url || typeof url !== "string") {
-					this.logMsg(
-						"warn",
-						"Process finished but details.download_url is missing or invalid",
-						details,
-					);
-					throw new LokaliseError(
-						"Lokalise returned finished process without a valid download_url",
-						502,
-					);
-				}
-
-				translationsBundleURL = url;
-			} else if (
-				completedProcess.status === "failed" ||
-				completedProcess.status === "cancelled"
-			) {
-				const msg = completedProcess.message?.trim();
-				throw new LokaliseError(
-					`Process ${completedProcess.process_id} ended with status=${completedProcess.status}` +
-						(msg ? `: ${msg}` : ""),
-					502,
-				);
-			} else {
-				this.logMsg(
-					"warn",
-					`Process ended with status=${completedProcess.status}`,
-				);
-				throw new LokaliseError(
-					`Download process took too long to finalize; ` +
-						`configured=${String(processDownloadFileParams?.pollMaximumWaitTime)} ` +
-						`effective=${pollMaximumWaitTime}ms`,
-					500,
-				);
-			}
-		} else {
-			this.logMsg("debug", "Async download mode disabled.");
-
-			const translationsBundle =
-				await this.getTranslationsBundle(downloadFileParams);
-			translationsBundleURL = translationsBundle.bundle_url;
-		}
-
-		this.logMsg("debug", "Downloading translation bundle...");
+		const translationsBundleURL = await this.fetchTranslationBundleURL(
+			downloadFileParams,
+			processParams,
+		);
 
 		const zipFilePath = await this.downloadZip(
 			translationsBundleURL,
-			bundleDownloadTimeout,
+			processParams.bundleDownloadTimeout,
 		);
 
-		const unpackTo = path.resolve(extractParams.outputDir ?? "./");
-
-		this.logMsg(
-			"debug",
-			`Unpacking translations from ${zipFilePath} to ${unpackTo}`,
+		await this.processZip(
+			zipFilePath,
+			path.resolve(extractParams.outputDir ?? "./"),
 		);
-
-		try {
-			await this.unpackZip(zipFilePath, unpackTo);
-
-			this.logMsg("debug", "Translations unpacked!");
-			this.logMsg("debug", "Download successful!");
-		} finally {
-			this.logMsg("debug", `Removing temp archive from ${zipFilePath}`);
-			await fs.promises.unlink(zipFilePath);
-		}
 	}
 
 	/**
@@ -194,12 +85,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 					);
 				}
 
-				if (!zipfile) {
-					return reject(
-						new LokaliseError(`ZIP file is invalid or empty: ${zipFilePath}`),
-					);
-				}
-
 				zipfile.readEntry();
 
 				zipfile.on("entry", (entry) => {
@@ -215,41 +100,94 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	}
 
 	/**
-	 * Downloads a ZIP file from the given URL.
+	 * Downloads a ZIP file from the given URL and stores it as a temporary file.
 	 *
-	 * @param url - The URL of the ZIP file.
-	 * @returns The file path of the downloaded ZIP file.
-	 * @throws {LokaliseError} If the download fails or the response body is empty.
+	 * Performs URL validation, optional timeout handling, fetch request execution,
+	 * response integrity checks, and writes the ZIP stream to disk.
+	 *
+	 * @param url - Direct URL to the ZIP bundle provided by Lokalise.
+	 * @param downloadTimeout - Optional timeout (in ms) for the HTTP request. `0` disables timeouts.
+	 * @returns Absolute path to the temporary ZIP file on disk.
 	 */
 	protected async downloadZip(
 		url: string,
 		downloadTimeout = 0,
 	): Promise<string> {
-		const bundleURL = this.assertHttpUrl(url);
+		this.logMsg("debug", "Downloading translation bundle...");
 
+		const bundleURL = this.assertHttpUrl(url);
+		const tempZipPath = this.buildTempZipPath();
+
+		const signal = this.buildAbortSignal(downloadTimeout);
+		const response = await this.fetchZipResponse(
+			bundleURL,
+			signal,
+			downloadTimeout,
+		);
+
+		const body = this.getZipResponseBody(response, url);
+
+		await this.writeZipToDisk(body, tempZipPath);
+
+		return tempZipPath;
+	}
+
+	/**
+	 * Builds a unique temporary file path for storing the downloaded ZIP bundle.
+	 *
+	 * Uses a UUID when available or falls back to a combination of PID, timestamp, and random bytes.
+	 *
+	 * @returns A full path to a temporary ZIP file in the OS temp directory.
+	 */
+	protected buildTempZipPath(): string {
 		const uid =
 			crypto.randomUUID?.() ??
 			`${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
 
-		const tempZipPath = path.join(os.tmpdir(), `lokalise-${uid}.zip`);
-		let response: Response;
+		return path.join(os.tmpdir(), `lokalise-${uid}.zip`);
+	}
 
-		const signal =
-			downloadTimeout > 0 ? AbortSignal.timeout(downloadTimeout) : undefined;
+	/**
+	 * Creates an optional AbortSignal for enforcing request timeouts.
+	 *
+	 * Returns `undefined` when no timeout is configured, disabling abort handling.
+	 *
+	 * @param downloadTimeout - Timeout in milliseconds. `0` or negative disables the signal.
+	 * @returns An AbortSignal if timeout is enabled, otherwise `undefined`.
+	 */
+	private buildAbortSignal(downloadTimeout: number): AbortSignal | undefined {
+		if (downloadTimeout <= 0) {
+			return undefined;
+		}
 
+		return AbortSignal.timeout(downloadTimeout);
+	}
+
+	/**
+	 * Executes a fetch request for the ZIP bundle URL with optional timeout handling.
+	 *
+	 * Wraps network failures, timeouts, and unexpected fetch errors into `LokaliseError`
+	 * so higher-level logic receives consistent exceptions.
+	 *
+	 * @param bundleURL - Parsed URL pointing to the ZIP file.
+	 * @param signal - Optional `AbortSignal` used to enforce request timeouts.
+	 * @param downloadTimeout - Timeout duration (ms) used for error messaging.
+	 * @returns The raw `Response` object returned by `fetch` if the request succeeds.
+	 */
+	protected async fetchZipResponse(
+		bundleURL: URL,
+		signal: AbortSignal | undefined,
+		downloadTimeout: number,
+	): Promise<Response> {
 		try {
-			response = await fetch(bundleURL, {
-				...(signal ? { signal } : {}),
-			});
+			return await fetch(bundleURL, signal ? { signal } : {});
 		} catch (err) {
 			if (err instanceof Error) {
 				if (err.name === "TimeoutError") {
 					throw new LokaliseError(
 						`Request timed out after ${downloadTimeout}ms`,
 						408,
-						{
-							reason: "timeout",
-						},
+						{ reason: "timeout" },
 					);
 				}
 
@@ -258,28 +196,68 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				});
 			}
 
-			throw new LokaliseError("An unknown error occurred", 500, {
-				reason: String(err),
-			});
+			// This should never happen in production
+			// as realistically fetch always raises Error,
+			// unless some black magic has been involved.
+			/* v8 ignore start */
+			throw new LokaliseError(
+				"An unknown error occurred. This might indicate a bug.",
+				500,
+				{
+					reason: String(err),
+				},
+			);
+			/* v8 ignore end */
 		}
+	}
 
+	/**
+	 * Validates and extracts the readable body stream from a fetch response.
+	 *
+	 * Ensures the response is OK and has a non-null body before returning it.
+	 *
+	 * @param response - The HTTP response returned by `fetch`.
+	 * @param originalUrl - Original URL used for error diagnostics.
+	 * @returns A web ReadableStream of the ZIP file contents.
+	 * @throws {LokaliseError} If the response is not OK or body is missing.
+	 */
+	private getZipResponseBody(
+		response: Response,
+		originalUrl: string,
+	): WebReadableStream<Uint8Array> {
 		if (!response.ok) {
 			throw new LokaliseError(
 				`Failed to download ZIP file: ${response.statusText} (${response.status})`,
 			);
 		}
 
-		const body = response.body;
+		const body = response.body as WebReadableStream<Uint8Array> | null;
+
 		if (!body) {
 			throw new LokaliseError(
-				`Response body is null. Cannot download ZIP file from URL: ${url}`,
+				`Response body is null. Cannot download ZIP file from URL: ${originalUrl}`,
 			);
 		}
 
+		return body;
+	}
+
+	/**
+	 * Streams the ZIP response body to a temporary file on disk.
+	 *
+	 * Cleans up the temporary file if the streaming pipeline fails.
+	 *
+	 * @param body - Web readable stream of the ZIP content.
+	 * @param tempZipPath - Path where the ZIP should be written.
+	 * @returns A promise that resolves once the file is fully written.
+	 * @throws {Error} Re-throws any pipeline errors after attempting cleanup.
+	 */
+	private async writeZipToDisk(
+		body: WebReadableStream<Uint8Array>,
+		tempZipPath: string,
+	): Promise<void> {
 		try {
-			const nodeReadable = Readable.fromWeb(
-				body as unknown as WebReadableStream<Uint8Array>,
-			);
+			const nodeReadable = Readable.fromWeb(body);
 			await this.streamPipeline(
 				nodeReadable,
 				fs.createWriteStream(tempZipPath),
@@ -295,7 +273,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			}
 			throw e;
 		}
-		return tempZipPath;
 	}
 
 	/**
@@ -338,7 +315,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	 * @param outputDir - The directory where the entry should be written.
 	 * @returns A promise that resolves when the entry is fully written.
 	 */
-	private async handleZipEntry(
+	protected async handleZipEntry(
 		entry: yauzl.Entry,
 		zipfile: yauzl.ZipFile,
 		outputDir: string,
@@ -390,7 +367,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	 * @returns The absolute and safe path to write the entry.
 	 * @throws {LokaliseError} If the entry path is detected as malicious.
 	 */
-	private processZipEntryPath(
+	protected processZipEntryPath(
 		outputDir: string,
 		entryFilename: string,
 	): string {
@@ -424,5 +401,255 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		}
 
 		return parsed;
+	}
+
+	/**
+	 * Builds effective process parameters for the download workflow.
+	 *
+	 * Merges caller-provided overrides with the default settings.
+	 *
+	 * @param overrides - Partial process configuration to override defaults.
+	 * @returns Fully resolved process parameters.
+	 */
+	private buildProcessParams(
+		overrides?: Partial<ProcessDownloadFileParams>,
+	): Required<ProcessDownloadFileParams> {
+		return {
+			...LokaliseDownload.defaultProcessParams,
+			...overrides,
+		};
+	}
+
+	/**
+	 * Unpacks the downloaded ZIP archive into the target directory and
+	 * removes the temporary archive file afterwards.
+	 *
+	 * Logs progress and always attempts to delete the temporary file.
+	 *
+	 * @param zipFilePath - Path to the temporary ZIP file.
+	 * @param unpackTo - Destination directory for extracted files.
+	 */
+	private async processZip(
+		zipFilePath: string,
+		unpackTo: string,
+	): Promise<void> {
+		this.logMsg(
+			"debug",
+			`Unpacking translations from ${zipFilePath} to ${unpackTo}`,
+		);
+
+		try {
+			await this.unpackZip(zipFilePath, unpackTo);
+
+			this.logMsg("debug", "Translations unpacked!");
+			this.logMsg("debug", "Download successful!");
+		} finally {
+			this.logMsg("debug", `Removing temp archive from ${zipFilePath}`);
+			await fs.promises.unlink(zipFilePath);
+		}
+	}
+
+	/**
+	 * Fetches the direct bundle URL in synchronous (non-async) mode.
+	 *
+	 * Calls the standard download endpoint without polling.
+	 *
+	 * @param downloadFileParams - Parameters for Lokalise API file download.
+	 * @returns Direct bundle URL returned by Lokalise.
+	 */
+	private async fetchBundleURLSync(
+		downloadFileParams: DownloadFileParams,
+	): Promise<string> {
+		this.logMsg("debug", "Async download mode disabled.");
+
+		const translationsBundle =
+			await this.getTranslationsBundle(downloadFileParams);
+		return translationsBundle.bundle_url;
+	}
+
+	/**
+	 * Polls an async download process until it completes or the maximum wait time is reached.
+	 *
+	 * Validates the final status and throws if the process did not finish properly.
+	 *
+	 * @param downloadProcess - The initially queued async process.
+	 * @param initialWait - Initial interval in ms before the first poll.
+	 * @param maxWait - Maximum total wait time in ms.
+	 * @returns The completed process object.
+	 * @throws {LokaliseError} If the process is not found or does not finish successfully.
+	 */
+	protected async pollAsyncDownload(
+		downloadProcess: QueuedProcess,
+		initialWait: number,
+		maxWait: number,
+	): Promise<QueuedProcess> {
+		this.logMsg(
+			"debug",
+			`Waiting for download process ID ${downloadProcess.process_id} to complete...`,
+		);
+		this.logMsg(
+			"debug",
+			`Effective waits: initial=${initialWait}ms, max=${maxWait}ms`,
+		);
+
+		const results = await this.pollProcesses(
+			[downloadProcess],
+			initialWait,
+			maxWait,
+		);
+
+		const completedProcess = results.find(
+			(p) => p.process_id === downloadProcess.process_id,
+		);
+
+		if (!completedProcess) {
+			throw new LokaliseError(
+				`Process ${downloadProcess.process_id} not found after polling`,
+				500,
+			);
+		}
+
+		if (!LokaliseFileExchange.isFinishedStatus(completedProcess.status)) {
+			throw new LokaliseError(
+				`Download process did not finish within ${maxWait}ms` +
+					`${completedProcess.status ? ` (last status=${completedProcess.status})` : " (status missing)"}`,
+				504,
+			);
+		}
+
+		return completedProcess;
+	}
+
+	/**
+	 * Resolves the bundle download URL using either async or sync strategy.
+	 *
+	 * Delegates to `fetchBundleURLAsync` or `fetchBundleURLSync`
+	 * based on the `asyncDownload` flag.
+	 *
+	 * @param downloadFileParams - Parameters for Lokalise API file download.
+	 * @param processParams - Effective process parameters controlling async behavior and polling.
+	 * @returns Direct bundle URL to download.
+	 */
+	private fetchTranslationBundleURL(
+		downloadFileParams: DownloadFileParams,
+		processParams: Required<ProcessDownloadFileParams>,
+	): Promise<string> {
+		return processParams.asyncDownload
+			? this.fetchBundleURLAsync(downloadFileParams, processParams)
+			: this.fetchBundleURLSync(downloadFileParams);
+	}
+
+	/**
+	 * Extracts and verifies the download URL from a finished async process.
+	 *
+	 * Ensures `details.download_url` is present and is a string.
+	 *
+	 * @param completedProcess - Process object with status `finished`.
+	 * @returns Valid download URL string.
+	 * @throws {LokaliseError} If the URL is missing or invalid.
+	 */
+	private handleFinishedAsyncProcess(completedProcess: QueuedProcess): string {
+		const details = completedProcess.details as
+			| (DownloadedFileProcessDetails & { download_url?: string })
+			| undefined;
+
+		const url = details?.download_url;
+		if (!url || typeof url !== "string") {
+			this.logMsg(
+				"warn",
+				"Process finished but details.download_url is missing or invalid",
+				details,
+			);
+			throw new LokaliseError(
+				"Lokalise returned finished process without a valid download_url",
+				502,
+			);
+		}
+
+		return url;
+	}
+
+	/**
+	 * Handles a failed or cancelled async process by throwing an error with context.
+	 *
+	 * Includes the process status and optional message from Lokalise.
+	 *
+	 * @param completedProcess - Process object with status `failed` or `cancelled`.
+	 * @throws {LokaliseError} Always throws, as the process did not succeed.
+	 */
+	private handleFailedAsyncProcess(completedProcess: QueuedProcess): never {
+		const msg = completedProcess.message?.trim();
+		throw new LokaliseError(
+			`Process ${completedProcess.process_id} ended with status=${completedProcess.status}` +
+				(msg ? `: ${msg}` : ""),
+			502,
+		);
+	}
+
+	/**
+	 * Handles an unexpected async process outcome when it did not finish in time.
+	 *
+	 * Logs a warning and throws an error indicating that finalization took too long.
+	 *
+	 * @param completedProcess - Process object with unexpected status.
+	 * @param maxWait - Effective maximum wait time used during polling.
+	 * @throws {LokaliseError} Always throws to signal an unexpected async outcome.
+	 */
+	private handleUnexpectedAsyncProcess(
+		completedProcess: QueuedProcess,
+		maxWait: number,
+	): never {
+		this.logMsg("warn", `Process ended with status=${completedProcess.status}`);
+		throw new LokaliseError(
+			`Download process took too long to finalize; effective=${maxWait}ms`,
+			500,
+		);
+	}
+
+	/**
+	 * Runs the async download flow: queues the download, polls its status,
+	 * and returns the final bundle URL once the process completes.
+	 *
+	 * Handles finished, failed/cancelled, and unexpected statuses separately.
+	 *
+	 * @param downloadFileParams - Parameters for Lokalise API async file download.
+	 * @param processParams - Effective process parameters controlling polling behavior.
+	 * @returns Direct URL to the generated ZIP bundle.
+	 * @throws {LokaliseError} If the process fails, is cancelled, or does not finalize properly.
+	 */
+	protected async fetchBundleURLAsync(
+		downloadFileParams: DownloadFileParams,
+		processParams: Required<ProcessDownloadFileParams>,
+	): Promise<string> {
+		this.logMsg("debug", "Async download mode enabled.");
+
+		const downloadProcess =
+			await this.getTranslationsBundleAsync(downloadFileParams);
+
+		const { pollInitialWaitTime, pollMaximumWaitTime } = processParams;
+
+		const completedProcess = await this.pollAsyncDownload(
+			downloadProcess,
+			pollInitialWaitTime,
+			pollMaximumWaitTime,
+		);
+
+		this.logMsg(
+			"debug",
+			`Download process status is ${completedProcess.status}`,
+		);
+
+		if (completedProcess.status === "finished") {
+			return this.handleFinishedAsyncProcess(completedProcess);
+		}
+
+		if (
+			completedProcess.status === "failed" ||
+			completedProcess.status === "cancelled"
+		) {
+			this.handleFailedAsyncProcess(completedProcess);
+		}
+
+		this.handleUnexpectedAsyncProcess(completedProcess, pollMaximumWaitTime);
 	}
 }

@@ -219,6 +219,48 @@ describe("LokaliseFileExchange", () => {
 			});
 		});
 
+		describe("calculateSleepMs", () => {
+			it("calculates sleep with non-zero jitter range", async () => {
+				const exchanger = new FakeLokaliseFileExchange(
+					{ apiKey: "abc123" },
+					{ projectId: "123.abc" },
+				);
+
+				const sleepMs = exchanger.calculateSleepMs(
+					{
+						maxRetries: 3,
+						initialSleepTime: 100,
+						jitterRatio: 0.1,
+						rng: () => 0,
+					},
+					2,
+				);
+
+				// base: 200
+				// jitter range: 0..20, rng = 0 → jitter = 0
+				expect(sleepMs).toEqual(200);
+			});
+
+			it("handles unexpected zeros properly", async () => {
+				const exchanger = new FakeLokaliseFileExchange(
+					{ apiKey: "abc123" },
+					{ projectId: "123.abc" },
+				);
+
+				const sleepMs = exchanger.calculateSleepMs(
+					{
+						maxRetries: 3,
+						initialSleepTime: 0,
+						jitterRatio: 0.2,
+						rng: Math.random,
+					},
+					1,
+				);
+
+				expect(sleepMs).toEqual(0);
+			});
+		});
+
 		describe("pollProcesses", () => {
 			it("should warn when process cannot be fetched", async () => {
 				const exchanger = new FakeLokaliseFileExchange(

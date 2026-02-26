@@ -172,9 +172,11 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 				await uploader.uploadSingleFile(mockParams);
 			} catch (e) {
 				expect(e).toBeInstanceOf(LokaliseError);
-				expect(e.message).toEqual("Maximum retries reached: Request Timeout");
-				expect(e.code).toEqual(408);
-				expect(e.details).toEqual({ reason: "server error without details" });
+
+				const err = e as LokaliseError;
+				expect(err.message).toEqual("Maximum retries reached: Request Timeout");
+				expect(err.code).toEqual(408);
+				expect(err.details).toEqual({ reason: "server error without details" });
 			}
 
 			expect(sleepSpy).toHaveBeenCalledTimes(retries);

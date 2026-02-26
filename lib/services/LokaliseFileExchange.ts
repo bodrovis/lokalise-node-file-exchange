@@ -96,48 +96,44 @@ export class LokaliseFileExchange {
 			logColor = true,
 		}: LokaliseExchangeConfig,
 	) {
-		if (logColor) {
-			this.logger = logWithColor;
-		} else {
-			this.logger = logWithLevel;
-		}
-
-		this.logThreshold = logThreshold;
-
-		let lokaliseApiConfig = clientConfig;
-
-		if (logThreshold === "silent") {
-			lokaliseApiConfig = {
-				silent: true,
-				...lokaliseApiConfig,
-			};
-		}
-
-		if (useOAuth2) {
-			this.logMsg("debug", "Using OAuth 2 Lokalise API client");
-			this.apiClient = new LokaliseApiOAuth(lokaliseApiConfig);
-		} else {
-			this.logMsg("debug", "Using regular (token-based) Lokalise API client");
-			this.apiClient = new LokaliseApi(lokaliseApiConfig);
-		}
-
 		this.projectId = projectId;
-
-		this.retryParams = {
-			...LokaliseFileExchange.defaultRetryParams,
-			...retryParams,
-		};
+		this.logThreshold = logThreshold;
+		this.logger = this.chooseLogger(logColor);
+		this.retryParams = this.buildRetryParams(retryParams);
 
 		this.validateParams();
+
+		const apiConfig = this.buildLokaliseClientConfig(
+			clientConfig,
+			logThreshold,
+		);
+		this.apiClient = this.createApiClient(apiConfig, useOAuth2);
 	}
 
 	/**
-	 * Executes an asynchronous operation with exponential backoff retry logic.
+	 * Executes an asynchronous operation with exponential-backoff retry logic.
+	 *
+	 * The operation is attempted multiple times if it throws a retryable
+	 * `LokaliseApiError`. Each retry waits longer than the previous one based on
+	 * exponential backoff parameters (`base`, `factor`, optional jitter).
+	 *
+	 * Behaviour:
+	 * - If the operation succeeds — its result is returned immediately.
+	 * - If it fails with a retryable error — the function waits and retries.
+	 * - If the maximum number of retries is reached — throws a `LokaliseError`
+	 *   with the original error details.
+	 * - If the error is non-retryable — it is immediately wrapped into
+	 *   `LokaliseError` and rethrown.
+	 * - Any non-Lokalise errors are rethrown as-is.
+	 *
+	 * @param operation - A function that performs the async action to be retried.
+	 * @returns The successful result of the operation.
+	 * @throws LokaliseError After all retries fail or on non-retryable errors.
 	 */
 	protected async withExponentialBackoff<T>(
 		operation: () => Promise<T>,
 	): Promise<T> {
-		const { maxRetries, initialSleepTime, jitterRatio, rng } = this.retryParams;
+		const { maxRetries } = this.retryParams;
 		this.logMsg(
 			"debug",
 			`Running operation with exponential backoff; max retries: ${maxRetries}`,
@@ -153,16 +149,13 @@ export class LokaliseFileExchange {
 
 					if (attempt === maxRetries + 1) {
 						throw new LokaliseError(
-							`Maximum retries reached: ${error.message ?? "Unknown error"}`,
+							`Maximum retries reached: ${error.message}`,
 							error.code,
 							error.details,
 						);
 					}
 
-					const base = initialSleepTime * 2 ** (attempt - 1);
-					const maxJitter = Math.floor(base * jitterRatio);
-					const jitter = maxJitter > 0 ? Math.floor(rng() * maxJitter) : 0;
-					const sleepMs = base + jitter;
+					const sleepMs = this.calculateSleepMs(this.retryParams, attempt);
 
 					this.logMsg("debug", `Waiting ${sleepMs}ms before retry...`);
 					await LokaliseFileExchange.sleep(sleepMs);
@@ -177,9 +170,23 @@ export class LokaliseFileExchange {
 		// This line is unreachable but keeps TS happy.
 		throw new LokaliseError("Unexpected error during operation.", 500);
 	}
-
 	/**
-	 * Polls the status of queued processes until they are marked as "finished" or until the maximum wait time is exceeded.
+	 * Polls the status of queued processes until they are marked as "finished"
+	 * or until the maximum wait time is exceeded.
+	 *
+	 * Uses batched polling with limited concurrency and exponential backoff-like
+	 * wait times between iterations. Performs an initial status snapshot, then
+	 * repeatedly refreshes pending processes until either:
+	 * - all of them reach a finished state, or
+	 * - the time budget (`maxWaitTime`) is exhausted.
+	 *
+	 * A final refresh is performed for any still-pending processes before returning.
+	 *
+	 * @param processes - List of queued processes to poll.
+	 * @param initialWaitTime - Initial delay (in ms) between polling iterations.
+	 * @param maxWaitTime - Maximum total time (in ms) allowed for polling.
+	 * @param concurrency - Maximum number of processes to refresh per batch.
+	 * @returns A list of processes with their latest known statuses.
 	 */
 	protected async pollProcesses(
 		processes: QueuedProcess[],
@@ -193,12 +200,47 @@ export class LokaliseFileExchange {
 		);
 
 		const startTime = Date.now();
-		let waitTime = initialWaitTime;
+
+		const { processMap, pendingProcessIds } =
+			this.initializePollingState(processes);
+
+		await this.runPollingLoop(
+			processMap,
+			pendingProcessIds,
+			startTime,
+			initialWaitTime,
+			maxWaitTime,
+			concurrency,
+		);
+
+		if (pendingProcessIds.size > 0) {
+			await this.refreshRemainingProcesses(
+				processMap,
+				pendingProcessIds,
+				concurrency,
+			);
+		}
+
+		return Array.from(processMap.values());
+	}
+
+	/**
+	 * Builds internal tracking structures for polling: a map of process IDs
+	 * to their last known state and a set of IDs that are still pending.
+	 *
+	 * Also logs the initial status of each process.
+	 *
+	 * @param processes - Initial list of queued processes.
+	 * @returns A map of processes keyed by ID and a set of pending process IDs.
+	 */
+	private initializePollingState(processes: QueuedProcess[]): {
+		processMap: Map<string, QueuedProcess>;
+		pendingProcessIds: Set<string>;
+	} {
+		this.logMsg("debug", "Initial processes check...");
 
 		const processMap = new Map<string, QueuedProcess>();
 		const pendingProcessIds = new Set<string>();
-
-		this.logMsg("debug", "Initial processes check...");
 
 		for (const p of processes) {
 			if (p.status) {
@@ -217,6 +259,36 @@ export class LokaliseFileExchange {
 			}
 		}
 
+		return { processMap, pendingProcessIds };
+	}
+
+	/**
+	 * Runs the main polling loop for the given processes.
+	 *
+	 * Repeatedly fetches updated process statuses in batches while:
+	 * - there are still pending IDs, and
+	 * - the elapsed time is below the configured maximum.
+	 *
+	 * Includes a small "fast-follow" recheck when some processes have missing
+	 * status on the first iterations, and uses a growing wait time between
+	 * iterations (capped by the remaining time budget).
+	 *
+	 * @param processMap - Map of process IDs to their last known state.
+	 * @param pendingProcessIds - Set of IDs that are not finished yet.
+	 * @param startTime - Timestamp (ms) when polling started.
+	 * @param initialWaitTime - Initial delay (ms) between polling iterations.
+	 * @param maxWaitTime - Maximum total polling duration (ms).
+	 * @param concurrency - Maximum number of processes to refresh per batch.
+	 */
+	private async runPollingLoop(
+		processMap: Map<string, QueuedProcess>,
+		pendingProcessIds: Set<string>,
+		startTime: number,
+		initialWaitTime: number,
+		maxWaitTime: number,
+		concurrency: number,
+	): Promise<void> {
+		let waitTime = initialWaitTime;
 		let didFastFollow = false;
 
 		while (pendingProcessIds.size > 0 && Date.now() - startTime < maxWaitTime) {
@@ -275,35 +347,66 @@ export class LokaliseFileExchange {
 				Math.max(0, maxWaitTime - (Date.now() - startTime)),
 			);
 		}
-
-		if (pendingProcessIds.size > 0) {
-			this.logMsg(
-				"debug",
-				`Final refresh for ${pendingProcessIds.size} pending processes before return...`,
-			);
-
-			const finalBatch = await this.fetchProcessesBatch(
-				[...pendingProcessIds],
-				concurrency,
-			);
-
-			for (const { id, process } of finalBatch) {
-				if (process) processMap.set(id, process);
-			}
-		}
-
-		return Array.from(processMap.values());
 	}
 
 	/**
-	 * Determines if a given error is eligible for retry.
+	 * Performs a final status refresh for any processes that are still marked
+	 * as pending after the main polling loop.
+	 *
+	 * This gives one last chance to capture terminal statuses right before
+	 * returning the result to the caller.
+	 *
+	 * @param processMap - Map of process IDs to their last known state.
+	 * @param pendingProcessIds - Set of IDs that are still considered pending.
+	 * @param concurrency - Maximum number of processes to refresh per batch.
+	 */
+	private async refreshRemainingProcesses(
+		processMap: Map<string, QueuedProcess>,
+		pendingProcessIds: Set<string>,
+		concurrency: number,
+	): Promise<void> {
+		this.logMsg(
+			"debug",
+			`Final refresh for ${pendingProcessIds.size} pending processes before return...`,
+		);
+
+		const finalBatch = await this.fetchProcessesBatch(
+			[...pendingProcessIds],
+			concurrency,
+		);
+
+		for (const { id, process } of finalBatch) {
+			if (process) {
+				processMap.set(id, process);
+			}
+		}
+	}
+
+	/**
+	 * Determines whether the given Lokalise API error should trigger a retry attempt.
+	 *
+	 * An error is considered retryable if its `code` matches one of the predefined
+	 * retryable status codes.
+	 *
+	 * @param error - The `LokaliseApiError` instance to evaluate.
+	 * @returns `true` if the error is retryable, otherwise `false`.
 	 */
 	private isRetryable(error: LokaliseApiError): boolean {
 		return LokaliseFileExchange.RETRYABLE_CODES.includes(error.code);
 	}
 
 	/**
-	 * Logs a message with a specified level and the current threshold.
+	 * Logs a message using the configured logger, respecting the current log threshold.
+	 *
+	 * Wraps the raw logger call by attaching metadata such as:
+	 * - `level` — severity of the log entry,
+	 * - `threshold` — active log level threshold used to filter messages,
+	 * - `withTimestamp` — instructs the logger to prepend a timestamp.
+	 *
+	 * All variadic `args` are forwarded directly to the logger.
+	 *
+	 * @param level - Log level of the message being emitted.
+	 * @param args - Additional values to pass to the logger.
 	 */
 	protected logMsg(level: LogLevel, ...args: unknown[]): void {
 		this.logger(
@@ -313,7 +416,14 @@ export class LokaliseFileExchange {
 	}
 
 	/**
-	 * Retrieves the latest state of a queued process from the API.
+	 * Fetches the most recent state of a queued process from the Lokalise API.
+	 *
+	 * Sends a GET request for the process identified by `processId` and logs
+	 * both the request and the received status. Used during polling to refresh
+	 * the status of long-running async operations.
+	 *
+	 * @param processId - The unique identifier of the queued process to retrieve.
+	 * @returns A promise resolving to the updated `QueuedProcess` object.
 	 */
 	protected async getUpdatedProcess(processId: string): Promise<QueuedProcess> {
 		this.logMsg("debug", `Requesting update for process ID: ${processId}`);
@@ -338,7 +448,15 @@ export class LokaliseFileExchange {
 	}
 
 	/**
-	 * Validates the required client configuration parameters.
+	 * Validates essential client configuration parameters before any operations run.
+	 *
+	 * Ensures that:
+	 * - `projectId` is present and is a non-empty string,
+	 * - retry settings (`maxRetries`, `initialSleepTime`, `jitterRatio`)
+	 *   fall within acceptable ranges.
+	 *
+	 * Throws a `LokaliseError` if any configuration parameter is missing,
+	 * malformed, or outside allowed bounds.
 	 */
 	private validateParams(): void {
 		if (!this.projectId || typeof this.projectId !== "string") {
@@ -359,6 +477,22 @@ export class LokaliseFileExchange {
 			throw new LokaliseError("jitterRatio must be between 0 and 1.");
 	}
 
+	/**
+	 * Executes asynchronous work over a list of items with a fixed concurrency limit.
+	 *
+	 * Spawns up to `limit` parallel worker loops. Each loop pulls the next
+	 * unprocessed item index in a thread-safe manner (via shared counter `i`),
+	 * runs the provided async `worker` function for that item, and stores the
+	 * resulting value in the corresponding position of the `results` array.
+	 *
+	 * Processing stops when all items have been consumed. If any worker throws,
+	 * the error propagates and the whole operation rejects.
+	 *
+	 * @param items - The list of items to process.
+	 * @param limit - Maximum number of concurrent async operations.
+	 * @param worker - Async handler executed for each item.
+	 * @returns A promise resolving to an array of results, preserving input order.
+	 */
 	protected async runWithConcurrencyLimit<T, R>(
 		items: T[],
 		limit: number,
@@ -386,6 +520,23 @@ export class LokaliseFileExchange {
 		return results;
 	}
 
+	/**
+	 * Fetches updated process states for a list of process IDs in parallel,
+	 * respecting a maximum concurrency limit.
+	 *
+	 * Each process ID is resolved via `getUpdatedProcess()`. If the fetch
+	 * succeeds, the returned object includes both `id` and the updated
+	 * `process`. If an error occurs, a warning is logged and the result
+	 * contains only the `id`, allowing polling to continue without failing
+	 * the entire batch.
+	 *
+	 * Internally uses `runWithConcurrencyLimit` to enforce controlled parallelism.
+	 *
+	 * @param processIds - The list of queued process IDs to refresh.
+	 * @param concurrency - Maximum number of simultaneous requests.
+	 * @returns A list of objects mapping each ID to its latest fetched state
+	 *          (or `undefined` if the fetch failed).
+	 */
 	protected async fetchProcessesBatch(
 		processIds: string[],
 		concurrency = LokaliseFileExchange.maxConcurrentProcesses,
@@ -402,9 +553,101 @@ export class LokaliseFileExchange {
 	}
 
 	/**
-	 * Pauses execution for the specified number of milliseconds.
+	 * Delays execution for a given duration.
+	 *
+	 * Creates a Promise that resolves after the specified number of milliseconds,
+	 * allowing async workflows to pause without blocking the event loop.
+	 *
+	 * @param ms - Number of milliseconds to wait.
+	 * @returns A promise that resolves after the delay.
 	 */
 	protected static sleep(ms: number): Promise<void> {
 		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
+	/**
+	 * Computes the exponential-backoff delay for a retry attempt,
+	 * optionally adding jitter to avoid synchronized retries.
+	 *
+	 * @param retryParams - Backoff settings (initial delay, jitter, RNG).
+	 * @param attempt - Retry attempt number (1-based).
+	 * @returns Calculated sleep time in milliseconds.
+	 */
+	protected calculateSleepMs(
+		retryParams: RetryParams,
+		attempt: number,
+	): number {
+		const { initialSleepTime, jitterRatio, rng } = retryParams;
+
+		const base = initialSleepTime * 2 ** (attempt - 1);
+		const maxJitter = Math.floor(base * jitterRatio);
+		const jitter = maxJitter > 0 ? Math.floor(rng() * maxJitter) : 0;
+		return base + jitter;
+	}
+
+	/**
+	 * Builds the final Lokalise client configuration,
+	 * enabling silent mode when the log threshold is `"silent"`.
+	 *
+	 * @param clientConfig - Base client parameters.
+	 * @param logThreshold - Active logging threshold.
+	 * @returns The adjusted client configuration.
+	 */
+	private buildLokaliseClientConfig(
+		clientConfig: ClientParams,
+		logThreshold: LogThreshold,
+	): ClientParams {
+		if (logThreshold === "silent") {
+			return {
+				...clientConfig,
+				silent: true,
+			};
+		}
+
+		return { ...clientConfig };
+	}
+
+	/**
+	 * Creates the appropriate Lokalise API client instance,
+	 * choosing between OAuth2 and token-based authentication.
+	 *
+	 * @param lokaliseApiConfig - Configuration passed to the client.
+	 * @param useOAuth2 - Whether OAuth2 authentication should be used.
+	 * @returns A Lokalise API client instance.
+	 */
+	private createApiClient(
+		lokaliseApiConfig: ClientParams,
+		useOAuth2: boolean,
+	): LokaliseApi | LokaliseApiOAuth {
+		if (useOAuth2) {
+			this.logMsg("debug", "Using OAuth 2 Lokalise API client");
+			return new LokaliseApiOAuth(lokaliseApiConfig);
+		}
+
+		this.logMsg("debug", "Using regular (token-based) Lokalise API client");
+		return new LokaliseApi(lokaliseApiConfig);
+	}
+
+	/**
+	 * Merges user-provided retry settings with default retry parameters.
+	 *
+	 * @param retryParams - Optional overrides.
+	 * @returns Fully resolved retry configuration.
+	 */
+	private buildRetryParams(retryParams?: Partial<RetryParams>): RetryParams {
+		return {
+			...LokaliseFileExchange.defaultRetryParams,
+			...retryParams,
+		};
+	}
+
+	/**
+	 * Selects the logger implementation based on whether color output is enabled.
+	 *
+	 * @param logColor - If true, uses the colorized logger.
+	 * @returns The chosen log function.
+	 */
+	private chooseLogger(logColor: boolean): LogFunction {
+		return logColor ? logWithColor : logWithLevel;
 	}
 }

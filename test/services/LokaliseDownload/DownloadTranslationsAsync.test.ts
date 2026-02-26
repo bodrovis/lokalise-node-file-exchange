@@ -130,6 +130,50 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 	});
 
 	describe("Error Cases", () => {
+		it("should handle unknown statuses for async processes", async () => {
+			const finishedProcess: QueuedProcess = {
+				process_id: processId,
+				status: "invalid",
+				details: {
+					download_url: "",
+					file_size_kb: 0,
+					total_number_of_keys: 0,
+				},
+				type: "file-import",
+				message: "",
+				created_by: 20181,
+				created_by_email: "bodrovis@protonmail.com",
+				created_at: "2023-09-19 13:26:18 (Etc/UTC)",
+				created_at_timestamp: 1695129978,
+			};
+			vi.spyOn(downloader, "getTranslationsBundleAsync").mockResolvedValue(
+				finishedProcess,
+			);
+			vi.spyOn(downloader, "pollAsyncDownload").mockResolvedValue(
+				finishedProcess,
+			);
+			const loggerSpy = vi.spyOn(downloader, "logMsg").mockResolvedValue();
+
+			await expect(
+				downloader.fetchBundleURLAsync(
+					{ format: "json" },
+					{
+						asyncDownload: false,
+						pollInitialWaitTime: 1000,
+						pollMaximumWaitTime: 120_000,
+						bundleDownloadTimeout: 0,
+					},
+				),
+			).rejects.toThrow(
+				"Download process took too long to finalize; effective=120000ms",
+			);
+
+			expect(loggerSpy).toHaveBeenCalledWith(
+				"debug",
+				`Download process status is invalid`,
+			);
+		});
+
 		it("should throw an error if the async download process does not finish in time", async () => {
 			const mockResponse = {
 				process_id: processId,
@@ -149,7 +193,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				details: {} as DownloadedFileProcessDetails,
 				type: "file-import",
 				message: "",
-				created_by: "20181",
+				created_by: 20181,
 				created_by_email: "bodrovis@protonmail.com",
 				created_at: "2023-09-19 13:26:18 (Etc/UTC)",
 				created_at_timestamp: 1695129978,
@@ -195,7 +239,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				details: {} as DownloadedFileProcessDetails, // missing download_url
 				type: "file-import",
 				message: "",
-				created_by: "20181",
+				created_by: 20181,
 				created_by_email: "bodrovis@protonmail.com",
 				created_at: "2023-09-19 13:26:18 (Etc/UTC)",
 				created_at_timestamp: 1695129978,
@@ -242,7 +286,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				},
 				type: "file-import",
 				message: "",
-				created_by: "20181",
+				created_by: 20181,
 				created_by_email: "bodrovis@protonmail.com",
 				created_at: "2023-09-19 13:26:18 (Etc/UTC)",
 				created_at_timestamp: 1695129978,
@@ -290,7 +334,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				},
 				type: "file-import",
 				message: "",
-				created_by: "20181",
+				created_by: 20181,
 				created_by_email: "bodrovis@protonmail.com",
 				created_at: "2023-09-19 13:26:18 (Etc/UTC)",
 				created_at_timestamp: 1695129978,
@@ -346,7 +390,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				},
 				type: "file-import",
 				message: "",
-				created_by: "20181",
+				created_by: 20181,
 				created_by_email: "bodrovis@protonmail.com",
 				created_at: "2023-09-19 13:26:18 (Etc/UTC)",
 				created_at_timestamp: 1695129978,

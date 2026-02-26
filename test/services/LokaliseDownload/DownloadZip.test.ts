@@ -1,7 +1,9 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
+import type yauzl from "yauzl";
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
 import type { Interceptable } from "../../setup.js";
@@ -270,5 +272,135 @@ describe("LokaliseDownload: downloadZip()", () => {
 				downloader.downloadZip("https://example.com/download.zip"),
 			).resolves.not.toThrow();
 		});
+	});
+});
+
+describe("ZIP processing", () => {
+	let downloader: FakeLokaliseDownload;
+	let mockAgent: MockAgent;
+	let mockPool: Interceptable;
+
+	beforeAll(() => {
+		mockAgent = new MockAgent();
+		setGlobalDispatcher(mockAgent);
+		mockAgent.disableNetConnect();
+	});
+
+	afterAll(() => {
+		mockAgent.close();
+	});
+
+	beforeEach(() => {
+		downloader = new FakeLokaliseDownload(
+			{ apiKey: "123" },
+			{ projectId: "abc" },
+		);
+		mockPool = mockAgent.get("https://example.com");
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("wraps non-timeout Error as network or fetch error", async () => {
+		const url = new URL("https://example.com/download.zip");
+
+		mockPool
+			.intercept({
+				path: "/download.zip",
+				method: "GET",
+			})
+			.replyWithError(new Error("Network exploded"));
+
+		const promise = downloader.fetchZipResponse(url, undefined, 5000);
+
+		await expect(promise).rejects.toBeInstanceOf(LokaliseError);
+		await expect(promise).rejects.toThrow("fetch failed");
+
+		await expect(promise).rejects.toMatchObject({
+			code: 500,
+			details: { reason: "network or fetch error" },
+		});
+	});
+
+	it("throws on malicious ZIP entry (path traversal)", () => {
+		const outputDir = "/tmp/extract";
+		const malicious = "../evil.txt";
+
+		expect(() =>
+			downloader.processZipEntryPath(outputDir, malicious),
+		).toThrowError(LokaliseError);
+
+		expect(() => downloader.processZipEntryPath(outputDir, malicious)).toThrow(
+			/Malicious ZIP entry detected/,
+		);
+	});
+
+	it("throws on malicious absolute path", () => {
+		const outputDir = "/tmp/extract";
+		const malicious = "/etc/passwd";
+
+		expect(() =>
+			downloader.processZipEntryPath(outputDir, malicious),
+		).toThrowError(LokaliseError);
+	});
+
+	it("allows safe relative paths", () => {
+		const outputDir = "/tmp/extract";
+		const safe = "locales/en.json";
+		const full = downloader.processZipEntryPath(outputDir, safe);
+		expect(full).toBe(path.resolve(outputDir, safe));
+	});
+
+	it("rejects when zipfile.openReadStream returns an error", async () => {
+		const entry: yauzl.Entry = {
+			fileName: "file.txt",
+		} as unknown as yauzl.Entry;
+
+		const zipfile: yauzl.ZipFile = {
+			openReadStream: vi.fn(
+				(
+					_: yauzl.Entry,
+					cb: (err: Error | null, stream?: fs.ReadStream | null) => void,
+				) => {
+					cb(new Error("Stream error"), null);
+				},
+			),
+		} as unknown as yauzl.ZipFile;
+
+		await expect(
+			downloader.handleZipEntry(entry, zipfile, "/tmp/out"),
+		).rejects.toThrowError(LokaliseError);
+
+		await expect(
+			downloader.handleZipEntry(entry, zipfile, "/tmp/out"),
+		).rejects.toThrow("Failed to read ZIP entry: file.txt");
+	});
+
+	it("uses fallback when crypto.randomUUID is unavailable", () => {
+		type CryptoWithRandomUUID = typeof crypto & {
+			randomUUID?: () => string | undefined;
+		};
+
+		type RandomBytesSync = (size: number) => Buffer;
+
+		const cryptoWithUUID = crypto as CryptoWithRandomUUID;
+
+		vi.spyOn(cryptoWithUUID, "randomUUID").mockReturnValue(undefined);
+
+		vi.spyOn(crypto, "randomBytes").mockImplementation(((_: number) =>
+			Buffer.from("3c31fabbfa33cdbf", "hex")) as RandomBytesSync);
+
+		// mock Date.now
+		vi.spyOn(Date, "now").mockReturnValue(1772125693443);
+
+		const zipPath = downloader.buildTempZipPath();
+
+		const expected = path.join(
+			os.tmpdir(),
+			`lokalise-${process.pid}-1772125693443-3c31fabbfa33cdbf.zip`,
+		);
+
+		expect(zipPath).toBe(expected);
 	});
 });

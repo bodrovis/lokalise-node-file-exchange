@@ -121,51 +121,116 @@ export class LokaliseUpload extends LokaliseFileExchange {
 	/**
 	 * Processes a file to prepare it for upload, converting it to base64 and extracting its language code.
 	 *
-	 * @param {string} file - The absolute path to the file.
-	 * @param {string} projectRoot - The root directory of the project.
-	 * @param {ProcessUploadFileParams} [processParams] - Optional processing settings including inferers.
-	 * @returns {Promise<ProcessedFile>} A promise resolving with the processed file details, including base64 content, relative path, and language code.
+	 * @param file - The absolute path to the file.
+	 * @param projectRoot - The root directory of the project.
+	 * @param processParams - Optional processing settings including inferers.
+	 * @returns A promise resolving with the processed file details, including base64 content, relative path, and language code.
 	 */
 	protected async processFile(
 		file: string,
 		projectRoot: string,
 		processParams?: ProcessUploadFileParams,
 	): Promise<ProcessedFile> {
-		let relativePath: string;
+		const relativePath = await this.inferRelativePath(
+			file,
+			projectRoot,
+			processParams,
+		);
+
+		const languageCode = await this.inferLanguageCode(
+			file,
+			relativePath,
+			processParams,
+		);
+
+		const base64Content = await this.readFileAsBase64(file);
+
+		return {
+			data: base64Content,
+			filename: relativePath,
+			lang_iso: languageCode,
+		};
+	}
+
+	/**
+	 * Infers the relative path for an uploaded file.
+	 *
+	 * Tries a custom `filenameInferer` first; if it fails or returns empty/whitespace,
+	 * falls back to a POSIX-style relative path based on the project root.
+	 *
+	 * @param file - Absolute path to the source file.
+	 * @param projectRoot - Root directory of the project.
+	 * @param processParams - Optional processing settings including filename inferer.
+	 * @returns A promise resolving with the inferred relative path.
+	 */
+	private async inferRelativePath(
+		file: string,
+		projectRoot: string,
+		processParams?: ProcessUploadFileParams,
+	): Promise<string> {
 		try {
-			relativePath = processParams?.filenameInferer
+			const fromInferer = processParams?.filenameInferer
 				? await processParams.filenameInferer(file)
 				: "";
-			if (!relativePath.trim()) {
+
+			if (!fromInferer.trim()) {
 				throw new Error("Invalid filename: empty or only whitespace");
 			}
+
+			return fromInferer;
 		} catch {
-			relativePath = path.posix.relative(
+			// Fallback: derive a POSIX relative path from project root
+			return path.posix.relative(
 				this.toPosixPath(projectRoot),
 				this.toPosixPath(file),
 			);
 		}
+	}
 
-		let languageCode: string;
+	/**
+	 * Infers the language code for an uploaded file.
+	 *
+	 * Tries a custom `languageInferer` first; if it fails or returns empty/whitespace,
+	 * falls back to extracting the language code from the filename before the last extension.
+	 *
+	 * Example: "en.default.json" → "default"
+	 *
+	 * @param file - Absolute path to the source file.
+	 * @param relativePath - Effective relative path of the file (used for fallback parsing).
+	 * @param processParams - Optional processing settings including language inferer.
+	 * @returns A promise resolving with the inferred language code.
+	 */
+	private async inferLanguageCode(
+		file: string,
+		relativePath: string,
+		processParams?: ProcessUploadFileParams,
+	): Promise<string> {
 		try {
-			languageCode = processParams?.languageInferer
+			const fromInferer = processParams?.languageInferer
 				? await processParams.languageInferer(file)
 				: "";
-			if (!languageCode.trim()) {
+
+			if (!fromInferer.trim()) {
 				throw new Error("Invalid language code: empty or only whitespace");
 			}
+
+			return fromInferer;
 		} catch {
+			// Fallback: derive language code from the basename of the relative path
 			const baseName = path.basename(relativePath);
-			languageCode = baseName.split(".").slice(-2, -1)[0] ?? "unknown";
+			return baseName.split(".").slice(-2, -1)[0] ?? "unknown";
 		}
+	}
 
+	/**
+	 * Reads a file from disk and returns its content encoded as base64.
+	 *
+	 * @param file - Absolute path to the source file.
+	 * @returns A promise resolving with the file content encoded in base64.
+	 */
+	private async readFileAsBase64(file: string): Promise<string> {
 		const fileContent = await fs.promises.readFile(file);
-
-		return {
-			data: fileContent.toString("base64"),
-			filename: relativePath,
-			lang_iso: languageCode,
-		};
+		return fileContent.toString("base64");
 	}
 
 	/**
@@ -409,6 +474,16 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		}
 	}
 
+	/**
+	 * Normalizes a filesystem path to POSIX format.
+	 *
+	 * Replaces platform-specific separators (e.g. `\` on Windows)
+	 * with POSIX-style `/` to ensure consistent path handling
+	 * across different operating systems.
+	 *
+	 * @param p - Original filesystem path.
+	 * @returns The same path but with POSIX separators.
+	 */
 	private toPosixPath(p: string): string {
 		return p.split(path.sep).join(path.posix.sep);
 	}
