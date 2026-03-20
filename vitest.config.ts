@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 const isCI = !!process.env.CI;
 
 export default defineConfig({
-	esbuild: { target: "es2024" },
+	oxc: { target: "es2024" },
 	test: {
 		silent: isCI,
 		reporters: isCI ? ["default"] : ["verbose"],

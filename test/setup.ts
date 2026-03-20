@@ -22,16 +22,16 @@ import {
 } from "vitest";
 
 export {
-	describe,
-	expect,
-	it,
-	MockAgent,
-	setGlobalDispatcher,
-	beforeEach,
+	afterAll,
 	afterEach,
 	beforeAll,
-	afterAll,
-	vi,
+	beforeEach,
+	describe,
+	expect,
 	type Interceptable,
+	it,
+	MockAgent,
 	type MockInterceptor,
+	setGlobalDispatcher,
+	vi,
 };
