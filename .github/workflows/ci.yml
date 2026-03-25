@@ -15,7 +15,6 @@ jobs:
       matrix:
         node-version:
           - 20
-          - 21
           - 22
           - 23
           - 24
