@@ -23,7 +23,7 @@
 	],
 	"type": "module",
 	"scripts": {
-		"build": "tsup",
+		"build": "tsdown",
 		"test": "vitest run",
 		"lint": "npx @biomejs/biome check ./",
 		"lint:fix": "npx @biomejs/biome check --write ./",
@@ -46,8 +46,8 @@
 		"@types/yauzl": "^2.10.3",
 		"@vitest/coverage-v8": "^4.0.3",
 		"mock-fs": "^5.4.1",
-		"tsup": "^8.3.0",
-		"typescript": "^5.8.2",
+		"tsdown": "^0.21.4",
+		"typescript": "^6.0.2",
 		"undici": "^7.0.0",
 		"vitest": "^4.0.3"
 	},

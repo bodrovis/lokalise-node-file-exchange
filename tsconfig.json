@@ -1,6 +1,6 @@
 {
 	"compilerOptions": {
-		"target": "ES2024",
+		"target": "ES2025",
 		"module": "node20",
 		"moduleResolution": "node16",
 		"outDir": "dist",
@@ -20,7 +20,7 @@
 		"exactOptionalPropertyTypes": true,
 		"noUncheckedIndexedAccess": true,
 		"useUnknownInCatchVariables": true,
-		"rootDir": "lib",
+		"rootDir": "./lib",
 		"types": ["node"]
 	},
 	"include": ["lib/**/*"],
