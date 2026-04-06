@@ -1,6 +1,6 @@
 {
 	"name": "lokalise-file-exchange",
-	"version": "4.1.0",
+	"version": "4.2.0",
 	"description": "Exchange translation files with Lokalise TMS",
 	"license": "BSD-3-Clause",
 	"repository": {
@@ -35,8 +35,8 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@lokalise/node-api": "^15.0.0",
-		"kliedz": "^2.0.0",
+		"@lokalise/node-api": "^15.7.1",
+		"kliedz": "^2.1.1",
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {
@@ -48,7 +48,7 @@
 		"mock-fs": "^5.4.1",
 		"tsdown": "^0.21.4",
 		"typescript": "^6.0.2",
-		"undici": "^7.0.0",
+		"undici": "^8.0.2",
 		"vitest": "^4.0.3"
 	},
 	"bugs": {
@@ -56,9 +56,9 @@
 	},
 	"homepage": "https://github.com/bodrovis/lokalise-node-file-exchange",
 	"exports": {
-		".": "./dist/index.js"
+		".": "./dist/index.mjs"
 	},
-	"types": "./dist/index.d.ts",
+	"types": "./dist/index.d.mts",
 	"directories": {
 		"lib": "./lib",
 		"test": "./test"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.2.0 (06-Apr-2026)
+
+* Update dependencies
+
 ## 4.1.0 (26-Feb-2026)
 
 * Code enhancements

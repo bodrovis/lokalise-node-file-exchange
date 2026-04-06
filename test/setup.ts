@@ -1,9 +1,12 @@
 import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
+import { install } from "undici";
 
 if (existsSync(".env")) {
 	loadEnvFile();
 }
+
+install();
 
 import { MockAgent, setGlobalDispatcher } from "undici";
 import type {
