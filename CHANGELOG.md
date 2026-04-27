@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* **Breaking change**: require Node 22+
+
 ## 4.2.0 (06-Apr-2026)
 
 * Update dependencies
