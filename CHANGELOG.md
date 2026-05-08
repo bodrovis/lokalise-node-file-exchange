@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 5.0.0 (08-May-2026)
 
 * **Breaking change**: require Node 22+
+* Test with Node 26
 
 ## 4.2.0 (06-Apr-2026)
 
