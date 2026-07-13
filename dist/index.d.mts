@@ -1,7 +1,6 @@
 import yauzl from "yauzl";
 import { ClientParams, DownloadBundle, DownloadFileParams, LokaliseApi, QueuedProcess, UploadFileParams } from "@lokalise/node-api";
 import { LogFunction, LogLevel, LogThreshold } from "kliedz";
-
 //#region lib/interfaces/LokaliseError.d.ts
 /**
  * Describes the structure of a Lokalise error.
@@ -177,13 +176,7 @@ declare class LokaliseFileExchange {
    * @param exchangeConfig - The configuration object for file exchange operations.
    * @throws {LokaliseError} If the provided configuration is invalid.
    */
-  constructor(clientConfig: ClientParams, {
-    projectId,
-    useOAuth2,
-    retryParams,
-    logThreshold,
-    logColor
-  }: LokaliseExchangeConfig);
+  constructor(clientConfig: ClientParams, { projectId, useOAuth2, retryParams, logThreshold, logColor }: LokaliseExchangeConfig);
   /**
    * Executes an asynchronous operation with exponential-backoff retry logic.
    *
@@ -416,11 +409,7 @@ declare class LokaliseDownload extends LokaliseFileExchange {
    * @param downloadTranslationParams - Full configuration for the download process, extraction destination, and optional polling or timeout settings.
    * @throws {LokaliseError} If the download, polling, or extraction fails.
    */
-  downloadTranslations({
-    downloadFileParams,
-    extractParams,
-    processDownloadFileParams
-  }: DownloadTranslationParams): Promise<void>;
+  downloadTranslations({ downloadFileParams, extractParams, processDownloadFileParams }: DownloadTranslationParams): Promise<void>;
   /**
    * Unpacks a ZIP file into the specified directory.
    *
@@ -650,24 +639,14 @@ declare class LokaliseUpload extends LokaliseFileExchange {
    * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
    * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
    */
-  uploadTranslations({
-    uploadFileParams,
-    collectFileParams,
-    processUploadFileParams
-  }?: UploadTranslationParams): Promise<QueuedUploadProcessesWithErrors>;
+  uploadTranslations({ uploadFileParams, collectFileParams, processUploadFileParams }?: UploadTranslationParams): Promise<QueuedUploadProcessesWithErrors>;
   /**
    * Collects files from the filesystem based on the given parameters.
    *
    * @param {CollectFileParams} collectFileParams - Parameters for file collection, including directories, extensions, and patterns.
    * @returns {Promise<string[]>} A promise resolving with the list of collected file paths.
    */
-  protected collectFiles({
-    inputDirs,
-    extensions,
-    excludePatterns,
-    recursive,
-    fileNamePattern
-  }?: CollectFileParams): Promise<string[]>;
+  protected collectFiles({ inputDirs, extensions, excludePatterns, recursive, fileNamePattern }?: CollectFileParams): Promise<string[]>;
   /**
    * Uploads a single file to Lokalise.
    *

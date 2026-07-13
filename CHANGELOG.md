@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.1.0 (08-May-2026)
+
+* Use TypeScript 7
+
 ## 5.0.0 (08-May-2026)
 
 * **Breaking change**: require Node 22+

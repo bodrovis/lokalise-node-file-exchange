@@ -1,6 +1,6 @@
 {
 	"name": "lokalise-file-exchange",
-	"version": "5.0.0",
+	"version": "5.1.0",
 	"description": "Exchange translation files with Lokalise TMS",
 	"license": "BSD-3-Clause",
 	"repository": {
@@ -35,8 +35,8 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@lokalise/node-api": "^16.0.0",
-		"kliedz": "^2.1.3",
+		"@lokalise/node-api": "^16.1.0",
+		"kliedz": "^2.2.0",
 		"yauzl": "^3.2.0"
 	},
 	"devDependencies": {
@@ -47,7 +47,7 @@
 		"@vitest/coverage-v8": "^4.0.3",
 		"mock-fs": "^5.4.1",
 		"tsdown": "^0.22.0",
-		"typescript": "^6.0.2",
+		"typescript": "^7.0.2",
 		"undici": "^8.0.2",
 		"vitest": "^4.0.3"
 	},
@@ -56,13 +56,17 @@
 	},
 	"homepage": "https://github.com/bodrovis/lokalise-node-file-exchange",
 	"exports": {
-		".": "./dist/index.mjs"
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs",
+			"default": "./dist/index.mjs"
+		}
 	},
 	"types": "./dist/index.d.mts",
-	"directories": {
-		"lib": "./lib",
-		"test": "./test"
-	},
+	"files": [
+		"dist",
+		"lib"
+	],
 	"author": "Ilya Krukowski",
 	"engines": {
 		"node": ">=22.19.0"

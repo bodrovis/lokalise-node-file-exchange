@@ -1,7 +1,7 @@
 {
 	"compilerOptions": {
 		"target": "ES2025",
-		"module": "nodenext",
+		"module": "node20",
 		"moduleResolution": "node16",
 		"outDir": "dist",
 		"sourceMap": true,
@@ -19,7 +19,6 @@
 		"verbatimModuleSyntax": true,
 		"exactOptionalPropertyTypes": true,
 		"noUncheckedIndexedAccess": true,
-		"useUnknownInCatchVariables": true,
 		"rootDir": "./lib",
 		"types": ["node"]
 	},
