@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.2.0 (02-Sep-2026)
+
+* Various code improvements
+* Update tests
+
 ## 5.1.0 (08-May-2026)
 
 * Use TypeScript 7

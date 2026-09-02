@@ -1,6 +1,6 @@
 {
 	"name": "lokalise-file-exchange",
-	"version": "5.1.0",
+	"version": "5.2.0",
 	"description": "Exchange translation files with Lokalise TMS",
 	"license": "BSD-3-Clause",
 	"repository": {
