@@ -17,17 +17,19 @@ export class FakeLokaliseFileExchange extends LokaliseFileExchange {
 		return this.logThreshold;
 	}
 
-	public async withExponentialBackoff<T>(
+	public override async withExponentialBackoff<T>(
 		operation: () => Promise<T>,
 	): Promise<T> {
 		return await super.withExponentialBackoff(operation);
 	}
 
-	public async getUpdatedProcess(processId: string): Promise<QueuedProcess> {
+	public override async getUpdatedProcess(
+		processId: string,
+	): Promise<QueuedProcess> {
 		return await super.getUpdatedProcess(processId);
 	}
 
-	public async pollProcesses(
+	public override async pollProcesses(
 		processes: QueuedProcess[],
 		initialWaitTime: number,
 		maxWaitTime: number,
@@ -35,18 +37,29 @@ export class FakeLokaliseFileExchange extends LokaliseFileExchange {
 		return await super.pollProcesses(processes, initialWaitTime, maxWaitTime);
 	}
 
-	public logMsg(level: LogLevel, ...args: unknown[]): void {
+	public override logMsg(level: LogLevel, ...args: unknown[]): void {
 		super.logMsg(level, ...args);
 	}
 
-	public async fetchProcessesBatch(
+	public override async fetchProcessesBatch(
 		processIds: string[],
 		concurrency = LokaliseFileExchange.maxConcurrentProcesses,
 	): Promise<Array<{ id: string; process?: QueuedProcess }>> {
 		return await super.fetchProcessesBatch(processIds, concurrency);
 	}
 
-	public calculateSleepMs(retryParams: RetryParams, attempt: number): number {
+	public override calculateSleepMs(
+		retryParams: RetryParams,
+		attempt: number,
+	): number {
 		return super.calculateSleepMs(retryParams, attempt);
+	}
+
+	public override async runWithConcurrencyLimit<T, R>(
+		items: T[],
+		limit: number,
+		worker: (item: T, index: number) => Promise<R>,
+	): Promise<R[]> {
+		return super.runWithConcurrencyLimit(items, limit, worker);
 	}
 }

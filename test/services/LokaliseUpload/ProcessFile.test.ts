@@ -1,44 +1,53 @@
 import fs from "node:fs";
 import path from "node:path";
-import mock from "mock-fs";
+
 import type { ProcessUploadFileParams } from "../../../lib/interfaces/ProcessUploadFileParams.js";
 import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
+import { createTestFs, type TestFs } from "../../helpers/testFs.js";
 import { afterEach, beforeEach, describe, expect, it } from "../../setup.js";
 
 describe("LokaliseUpload: processFile()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
 	const apiKey = process.env.API_KEY as string;
-	let lokaliseUpload: FakeLokaliseUpload;
 
-	beforeEach(() => {
-		mock({
-			"/project/locales": {
-				"en.json": '{"key": "value"}',
-				"weird.fake_json": '{"en_GB": {"key": "value"}}',
-				"fr_FR.json": '{"clé": "valeur"}',
-				"no-lang": "plain content",
-				nested: {
-					"es.json": '{"clave": "valor"}',
+	let lokaliseUpload: FakeLokaliseUpload;
+	let testFs: TestFs;
+	let projectDir: string;
+
+	beforeEach(async () => {
+		testFs = await createTestFs({
+			project: {
+				locales: {
+					"en.json": '{"key": "value"}',
+					"weird.fake_json": '{"en_GB": {"key": "value"}}',
+					"fr_FR.json": '{"clé": "valeur"}',
+					"no-lang": "plain content",
+					nested: {
+						"es.json": '{"clave": "valor"}',
+					},
+				},
+				other: {
+					"main.de-DE.json": '{"schlüssel": "wert"}',
 				},
 			},
-			"/project/other": {
-				"main.de-DE.json": '{"schlüssel": "wert"}',
-			},
 		});
+
+		projectDir = testFs.path("project");
 
 		lokaliseUpload = new FakeLokaliseUpload({ apiKey }, { projectId });
 	});
 
-	afterEach(() => {
-		mock.restore();
+	afterEach(async () => {
+		await testFs.cleanup();
 	});
 
 	describe("Basic Behavior", () => {
 		it("should process a file and return correct ProcessedFile object for en.json", async () => {
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/en.json",
-				"/project",
+				testFs.path("project", "locales", "en.json"),
+				projectDir,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"key": "value"}').toString("base64"),
 				filename: path.posix.join("locales", "en.json"),
@@ -48,9 +57,10 @@ describe("LokaliseUpload: processFile()", () => {
 
 		it("should process a file with complex filename and return correct ProcessedFile object", async () => {
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/fr_FR.json",
-				"/project",
+				testFs.path("project", "locales", "fr_FR.json"),
+				projectDir,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"clé": "valeur"}').toString("base64"),
 				filename: path.posix.join("locales", "fr_FR.json"),
@@ -60,9 +70,10 @@ describe("LokaliseUpload: processFile()", () => {
 
 		it("should process a nested file and return correct ProcessedFile object", async () => {
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/nested/es.json",
-				"/project",
+				testFs.path("project", "locales", "nested", "es.json"),
+				projectDir,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"clave": "valor"}').toString("base64"),
 				filename: path.posix.join("locales", "nested", "es.json"),
@@ -72,9 +83,10 @@ describe("LokaliseUpload: processFile()", () => {
 
 		it("should process a file from another directory and return correct ProcessedFile object", async () => {
 			const result = await lokaliseUpload.processFile(
-				"/project/other/main.de-DE.json",
-				"/project",
+				testFs.path("project", "other", "main.de-DE.json"),
+				projectDir,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"schlüssel": "wert"}').toString("base64"),
 				filename: path.posix.join("other", "main.de-DE.json"),
@@ -84,8 +96,8 @@ describe("LokaliseUpload: processFile()", () => {
 
 		it("should use unknown when the language code is missing", async () => {
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/no-lang",
-				"/project",
+				testFs.path("project", "locales", "no-lang"),
+				projectDir,
 			);
 
 			expect(result).toEqual({
@@ -103,11 +115,13 @@ describe("LokaliseUpload: processFile()", () => {
 					return path.basename(filePath);
 				},
 			};
+
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/nested/es.json",
-				"/project",
+				testFs.path("project", "locales", "nested", "es.json"),
+				projectDir,
 				processParams,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"clave": "valor"}').toString("base64"),
 				filename: "es.json",
@@ -121,11 +135,13 @@ describe("LokaliseUpload: processFile()", () => {
 					throw Error();
 				},
 			};
+
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/nested/es.json",
-				"/project",
+				testFs.path("project", "locales", "nested", "es.json"),
+				projectDir,
 				processParams,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"clave": "valor"}').toString("base64"),
 				filename: "locales/nested/es.json",
@@ -133,17 +149,19 @@ describe("LokaliseUpload: processFile()", () => {
 			});
 		});
 
-		it("should use default filename if the inferer return an empty string", async () => {
+		it("should use default filename if the inferer returns an empty string", async () => {
 			const processParams: ProcessUploadFileParams = {
 				filenameInferer: (_filePath) => {
 					return " ";
 				},
 			};
+
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/nested/es.json",
-				"/project",
+				testFs.path("project", "locales", "nested", "es.json"),
+				projectDir,
 				processParams,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"clave": "valor"}').toString("base64"),
 				filename: "locales/nested/es.json",
@@ -158,15 +176,17 @@ describe("LokaliseUpload: processFile()", () => {
 				languageInferer: async (filePath) => {
 					const fileData = await fs.promises.readFile(filePath);
 					const jsonContent = JSON.parse(fileData.toString());
-					return Object.keys(jsonContent)[0];
+
+					return Object.keys(jsonContent)[0] ?? "";
 				},
 			};
 
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/weird.fake_json",
-				"/project",
+				testFs.path("project", "locales", "weird.fake_json"),
+				projectDir,
 				processParams,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"en_GB": {"key": "value"}}').toString("base64"),
 				filename: path.posix.join("locales", "weird.fake_json"),
@@ -180,11 +200,13 @@ describe("LokaliseUpload: processFile()", () => {
 					throw Error();
 				},
 			};
+
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/en.json",
-				"/project",
+				testFs.path("project", "locales", "en.json"),
+				projectDir,
 				processParams,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"key": "value"}').toString("base64"),
 				filename: path.posix.join("locales", "en.json"),
@@ -200,10 +222,11 @@ describe("LokaliseUpload: processFile()", () => {
 			};
 
 			const result = await lokaliseUpload.processFile(
-				"/project/locales/en.json",
-				"/project",
+				testFs.path("project", "locales", "en.json"),
+				projectDir,
 				processParams,
 			);
+
 			expect(result).toEqual({
 				data: Buffer.from('{"key": "value"}').toString("base64"),
 				filename: path.posix.join("locales", "en.json"),

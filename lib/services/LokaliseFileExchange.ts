@@ -194,6 +194,18 @@ export class LokaliseFileExchange {
 		maxWaitTime: number,
 		concurrency = LokaliseFileExchange.maxConcurrentProcesses,
 	): Promise<QueuedProcess[]> {
+		if (!Number.isFinite(initialWaitTime) || initialWaitTime <= 0) {
+			throw new LokaliseError(
+				"initialWaitTime must be a positive finite value.",
+			);
+		}
+
+		if (!Number.isFinite(maxWaitTime) || maxWaitTime < 0) {
+			throw new LokaliseError(
+				"maxWaitTime must be a non-negative finite value.",
+			);
+		}
+
 		this.logMsg(
 			"debug",
 			`Start polling processes. Total processes count: ${processes.length}`,
@@ -459,22 +471,30 @@ export class LokaliseFileExchange {
 	 * malformed, or outside allowed bounds.
 	 */
 	private validateParams(): void {
-		if (!this.projectId || typeof this.projectId !== "string") {
+		if (
+			typeof this.projectId !== "string" ||
+			this.projectId.trim().length === 0
+		) {
 			throw new LokaliseError("Invalid or missing Project ID.");
 		}
 
 		const { maxRetries, initialSleepTime, jitterRatio } = this.retryParams;
 
-		if (maxRetries < 0) {
+		if (!Number.isInteger(maxRetries) || maxRetries < 0) {
+			throw new LokaliseError("maxRetries must be a non-negative integer.");
+		}
+
+		if (!Number.isFinite(initialSleepTime) || initialSleepTime <= 0) {
 			throw new LokaliseError(
-				"maxRetries must be greater than or equal to zero.",
+				"initialSleepTime must be a positive finite value.",
 			);
 		}
-		if (initialSleepTime <= 0) {
-			throw new LokaliseError("initialSleepTime must be a positive value.");
+
+		if (!Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1) {
+			throw new LokaliseError(
+				"jitterRatio must be a finite value between 0 and 1.",
+			);
 		}
-		if (jitterRatio < 0 || jitterRatio > 1)
-			throw new LokaliseError("jitterRatio must be between 0 and 1.");
 	}
 
 	/**
@@ -498,6 +518,9 @@ export class LokaliseFileExchange {
 		limit: number,
 		worker: (item: T, index: number) => Promise<R>,
 	): Promise<R[]> {
+		if (!Number.isInteger(limit) || limit <= 0) {
+			throw new LokaliseError("Concurrency limit must be a positive integer.");
+		}
 		const results = new Array<R>(items.length);
 		let i = 0;
 

@@ -100,7 +100,12 @@ describe("LokaliseDownload: getTranslationsBundleAsync()", () => {
 				{ apiKey },
 				{
 					projectId,
-					retryParams: { maxRetries: retries, initialSleepTime: sleepTime },
+					retryParams: {
+						maxRetries: retries,
+						initialSleepTime: sleepTime,
+						jitterRatio: 0,
+						rng: () => 0,
+					},
 				},
 			);
 			const sleepSpy = vi
@@ -153,7 +158,12 @@ describe("LokaliseDownload: getTranslationsBundleAsync()", () => {
 				{ apiKey },
 				{
 					projectId,
-					retryParams: { maxRetries: retries, initialSleepTime: sleepTime },
+					retryParams: {
+						maxRetries: retries,
+						initialSleepTime: sleepTime,
+						jitterRatio: 0,
+						rng: () => 0,
+					},
 				},
 			);
 			const sleepSpy = vi

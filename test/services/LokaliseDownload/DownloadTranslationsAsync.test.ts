@@ -1,14 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
+
 import type {
 	DownloadedFileProcessDetails,
 	FileFormat,
 	QueuedProcess,
 } from "@lokalise/node-api";
-import mockFs from "mock-fs";
 import { MockAgent, setGlobalDispatcher } from "undici";
+
 import { LokaliseError } from "../../../lib/index.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
+import { createTestFs, type TestFs } from "../../helpers/testFs.js";
 import type { Interceptable } from "../../setup.js";
 import {
 	afterAll,
@@ -25,15 +27,20 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
 	const apiKey = process.env.API_KEY as string;
 	const downloadFileParams = { format: "json" as FileFormat };
-	const extractParams = { outputDir: "/output/dir" };
-	let downloader: FakeLokaliseDownload;
-	const demoZipPath = path.resolve(
+
+	const demoZipFixturePath = path.resolve(
 		__dirname,
 		"../../fixtures/demo_archive.zip",
 	);
-	const mockOutputDir = "/output/dir";
+
+	let downloader: FakeLokaliseDownload;
+	let testFs: TestFs;
+	let demoZipPath: string;
+	let extractParams: { outputDir: string };
+
 	let mockAgent: MockAgent;
 	let mockPool: Interceptable;
+
 	const processId = "74738ff5-5367-5958-9aee-98fffdcd1876";
 
 	beforeAll(() => {
@@ -42,19 +49,30 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 		mockAgent.disableNetConnect();
 	});
 
-	beforeEach(() => {
-		downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-		mockFs({
-			[demoZipPath]: fs.readFileSync(demoZipPath),
-			[mockOutputDir]: {},
+	beforeEach(async () => {
+		testFs = await createTestFs({
+			archives: {
+				"demo_archive.zip": fs.readFileSync(demoZipFixturePath),
+			},
+			output: {
+				dir: {},
+			},
 		});
+
+		demoZipPath = testFs.path("archives", "demo_archive.zip");
+
+		extractParams = {
+			outputDir: testFs.path("output", "dir"),
+		};
+
+		downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
 
 		mockPool = mockAgent.get("https://api.lokalise.com");
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.restoreAllMocks();
-		mockFs.restore();
+		await testFs.cleanup();
 	});
 
 	afterAll(() => {
@@ -66,6 +84,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			const mockResponse = {
 				process_id: processId,
 			};
+
 			const fakeDownloadUrl = "https://example.com/fake.zip";
 
 			mockPool
@@ -97,10 +116,6 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				})
 				.times(1);
 
-			const unlinkSpy = vi
-				.spyOn(fs.promises, "unlink")
-				.mockResolvedValue(undefined);
-
 			const downloadZipSpy = vi
 				.spyOn(downloader, "downloadZip")
 				.mockResolvedValue(demoZipPath);
@@ -116,15 +131,27 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				},
 			});
 
-			expect(fs.existsSync("/output/dir/en/en.json")).toBe(true);
-			expect(fs.existsSync("/output/dir/fr_CA/no_filename.json")).toBe(true);
+			expect(fs.existsSync(testFs.path("output", "dir", "en", "en.json"))).toBe(
+				true,
+			);
+
+			expect(
+				fs.existsSync(
+					testFs.path("output", "dir", "fr_CA", "no_filename.json"),
+				),
+			).toBe(true);
 
 			const jsonContent = JSON.parse(
-				fs.readFileSync("/output/dir/fr_FR/fr_FR.json", "utf8"),
+				fs.readFileSync(
+					testFs.path("output", "dir", "fr_FR", "fr_FR.json"),
+					"utf8",
+				),
 			);
+
 			expect(jsonContent).toEqual({ welcome: "Bienvenue!" });
 
-			expect(unlinkSpy).toHaveBeenCalledWith(demoZipPath);
+			expect(fs.existsSync(demoZipPath)).toBe(false);
+
 			expect(downloadZipSpy).toHaveBeenCalledWith(fakeDownloadUrl, 10000);
 		});
 	});
@@ -165,12 +192,70 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 					},
 				),
 			).rejects.toThrow(
-				"Download process took too long to finalize; effective=120000ms",
+				"Download process did not finish within 120000ms (last status=invalid)",
 			);
 
 			expect(loggerSpy).toHaveBeenCalledWith(
 				"debug",
 				`Download process status is invalid`,
+			);
+		});
+
+		it("should return the matching process when status is missing", async () => {
+			const exchanger = new FakeLokaliseDownload(
+				{ apiKey: "abc123" },
+				{ projectId: "123.abc" },
+			);
+
+			const downloadProcess = {
+				process_id: "proc-123",
+				status: "queued",
+			} as QueuedProcess;
+
+			const polledProcess = {
+				process_id: "proc-123",
+			} as QueuedProcess;
+
+			vi.spyOn(exchanger, "pollProcesses").mockResolvedValue([polledProcess]);
+
+			await expect(
+				exchanger.pollAsyncDownload(downloadProcess, 100, 1000),
+			).resolves.toBe(polledProcess);
+		});
+
+		it("should throw when download process status is missing after polling", async () => {
+			const exchanger = new FakeLokaliseDownload(
+				{ apiKey: "abc123" },
+				{ projectId: "123.abc" },
+			);
+
+			const downloadProcess = {
+				process_id: "proc-123",
+				status: "queued",
+			} as QueuedProcess;
+
+			const polledProcess = {
+				process_id: "proc-123",
+			} as QueuedProcess;
+
+			vi.spyOn(exchanger, "getTranslationsBundleAsync").mockResolvedValue(
+				downloadProcess,
+			);
+
+			vi.spyOn(exchanger, "pollAsyncDownload").mockResolvedValue(polledProcess);
+
+			await expect(
+				exchanger.fetchBundleURLAsync(
+					{ format: "json" },
+					{
+						asyncDownload: true,
+						pollInitialWaitTime: 100,
+						pollMaximumWaitTime: 1000,
+						bundleDownloadTimeout: 0,
+					},
+				),
+			).rejects.toThrow(
+				"Download process did not finish within 1000ms (status missing)",
 			);
 		});
 
@@ -311,7 +396,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			).rejects.toThrow("Download failed");
 		});
 
-		it("should throw an error if unpackZip fails but still attempt to clean up the ZIP file", async () => {
+		it("should clean up the ZIP file if unpackZip fails", async () => {
 			const mockResponse = {
 				process_id: processId,
 			};
@@ -339,16 +424,16 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				created_at: "2023-09-19 13:26:18 (Etc/UTC)",
 				created_at_timestamp: 1695129978,
 			};
+
 			vi.spyOn(downloader, "pollProcesses").mockResolvedValue([
 				finishedProcess,
 			]);
+
 			vi.spyOn(downloader, "downloadZip").mockResolvedValue(demoZipPath);
+
 			vi.spyOn(downloader, "unpackZip").mockRejectedValue(
 				new LokaliseError("Extraction failed", 500),
 			);
-			const unlinkSpy = vi
-				.spyOn(fs.promises, "unlink")
-				.mockResolvedValue(undefined);
 
 			await expect(
 				downloader.downloadTranslations({
@@ -362,7 +447,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				}),
 			).rejects.toThrow("Extraction failed");
 
-			expect(unlinkSpy).toHaveBeenCalledWith(demoZipPath);
+			expect(fs.existsSync(demoZipPath)).toBe(false);
 		});
 
 		it("should throw an error if the download URL is invalid", async () => {

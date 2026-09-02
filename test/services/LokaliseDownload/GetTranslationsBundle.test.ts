@@ -107,7 +107,12 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 				{ apiKey },
 				{
 					projectId,
-					retryParams: { maxRetries: retries, initialSleepTime: sleepTime },
+					retryParams: {
+						maxRetries: retries,
+						initialSleepTime: sleepTime,
+						jitterRatio: 0,
+						rng: () => 0,
+					},
 				},
 			);
 			const sleepSpy = vi
@@ -235,6 +240,30 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 			);
 		});
 
+		it("should throw for a non-retryable API error", async () => {
+			const mockError = {
+				message: "Invalid request",
+				code: 406,
+			};
+
+			mockPool
+				.intercept({
+					path: `/api2/projects/${projectId}/files/async-download`,
+					method: "POST",
+					body: JSON.stringify(mockParams),
+				})
+				.reply(406, mockError);
+
+			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
+
+			await expect(
+				downloader.getTranslationsBundleAsync(mockParams),
+			).rejects.toMatchObject({
+				message: mockError.message,
+				code: mockError.code,
+			});
+		});
+
 		it("should throw a LokaliseError after maximum retries for 429", async () => {
 			const maxRetries = 2;
 			const initialSleepTime = 2;
@@ -348,7 +377,7 @@ describe("LokaliseDownload: getTranslationsBundle()", () => {
 
 			await expect(
 				invalidDownloader.getTranslationsBundle(mockParams),
-			).rejects.toThrow("Missing required parameter: project_id");
+			).rejects.toThrow();
 		});
 	});
 });

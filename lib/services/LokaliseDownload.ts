@@ -2,9 +2,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pipeline, Readable } from "node:stream";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
-import { promisify } from "node:util";
 import type {
 	DownloadBundle,
 	DownloadedFileProcessDetails,
@@ -30,8 +30,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			pollMaximumWaitTime: 120_000,
 			bundleDownloadTimeout: 0,
 		};
-
-	private readonly streamPipeline = promisify(pipeline);
 
 	/**
 	 * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
@@ -90,7 +88,10 @@ export class LokaliseDownload extends LokaliseFileExchange {
 				zipfile.on("entry", (entry) => {
 					this.handleZipEntry(entry, zipfile, outputDir)
 						.then(() => zipfile.readEntry())
-						.catch(reject);
+						.catch((error) => {
+							zipfile.close();
+							reject(error);
+						});
 				});
 
 				zipfile.on("end", resolve);
@@ -199,7 +200,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			// This should never happen in production
 			// as realistically fetch always raises Error,
 			// unless some black magic has been involved.
-			/* v8 ignore start */
 			throw new LokaliseError(
 				"An unknown error occurred. This might indicate a bug.",
 				500,
@@ -207,7 +207,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 					reason: String(err),
 				},
 			);
-			/* v8 ignore end */
 		}
 	}
 
@@ -258,10 +257,8 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	): Promise<void> {
 		try {
 			const nodeReadable = Readable.fromWeb(body);
-			await this.streamPipeline(
-				nodeReadable,
-				fs.createWriteStream(tempZipPath),
-			);
+
+			await pipeline(nodeReadable, fs.createWriteStream(tempZipPath));
 		} catch (e) {
 			try {
 				await fs.promises.unlink(tempZipPath);
@@ -271,6 +268,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 					`Stream pipeline failed and unable to remove temp path ${tempZipPath}`,
 				);
 			}
+
 			throw e;
 		}
 	}
@@ -323,28 +321,26 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		const fullPath = this.processZipEntryPath(outputDir, entry.fileName);
 
 		if (entry.fileName.endsWith("/")) {
-			// it's a directory
 			await this.createDir(fullPath);
 			return;
 		}
 
 		await this.createDir(path.dirname(fullPath));
 
-		return new Promise((response, reject) => {
-			zipfile.openReadStream(entry, (readErr, readStream) => {
-				if (readErr || !readStream) {
-					return reject(
+		const readStream = await new Promise<Readable>((resolve, reject) => {
+			zipfile.openReadStream(entry, (readErr, stream) => {
+				if (readErr || !stream) {
+					reject(
 						new LokaliseError(`Failed to read ZIP entry: ${entry.fileName}`),
 					);
+					return;
 				}
 
-				const writeStream = fs.createWriteStream(fullPath);
-				readStream.pipe(writeStream);
-				writeStream.on("finish", response);
-				writeStream.on("error", reject);
-				readStream.on("error", reject);
+				resolve(stream);
 			});
 		});
+
+		await pipeline(readStream, fs.createWriteStream(fullPath));
 	}
 
 	/**
@@ -374,7 +370,11 @@ export class LokaliseDownload extends LokaliseFileExchange {
 		// Validate paths to avoid path traversal issues
 		const fullPath = path.resolve(outputDir, entryFilename);
 		const relative = path.relative(outputDir, fullPath);
-		if (relative.startsWith("..") || path.isAbsolute(relative)) {
+		if (
+			relative === ".." ||
+			relative.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(relative)
+		) {
 			throw new LokaliseError(`Malicious ZIP entry detected: ${entryFilename}`);
 		}
 
@@ -445,7 +445,16 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			this.logMsg("debug", "Download successful!");
 		} finally {
 			this.logMsg("debug", `Removing temp archive from ${zipFilePath}`);
-			await fs.promises.unlink(zipFilePath);
+
+			try {
+				await fs.promises.unlink(zipFilePath);
+			} catch (error) {
+				this.logMsg(
+					"warn",
+					`Unable to remove temp archive ${zipFilePath}`,
+					error,
+				);
+			}
 		}
 	}
 
@@ -476,7 +485,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	 * @param initialWait - Initial interval in ms before the first poll.
 	 * @param maxWait - Maximum total wait time in ms.
 	 * @returns The completed process object.
-	 * @throws {LokaliseError} If the process is not found or does not finish successfully.
+	 * @throws {LokaliseError} if the process is not found or does not reach a terminal status.
 	 */
 	protected async pollAsyncDownload(
 		downloadProcess: QueuedProcess,
@@ -487,6 +496,7 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			"debug",
 			`Waiting for download process ID ${downloadProcess.process_id} to complete...`,
 		);
+
 		this.logMsg(
 			"debug",
 			`Effective waits: initial=${initialWait}ms, max=${maxWait}ms`,
@@ -506,14 +516,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			throw new LokaliseError(
 				`Process ${downloadProcess.process_id} not found after polling`,
 				500,
-			);
-		}
-
-		if (!LokaliseFileExchange.isFinishedStatus(completedProcess.status)) {
-			throw new LokaliseError(
-				`Download process did not finish within ${maxWait}ms` +
-					`${completedProcess.status ? ` (last status=${completedProcess.status})` : " (status missing)"}`,
-				504,
 			);
 		}
 
@@ -595,14 +597,19 @@ export class LokaliseDownload extends LokaliseFileExchange {
 	 * @param maxWait - Effective maximum wait time used during polling.
 	 * @throws {LokaliseError} Always throws to signal an unexpected async outcome.
 	 */
-	private handleUnexpectedAsyncProcess(
-		completedProcess: QueuedProcess,
+	private handleUnfinishedAsyncProcess(
+		process: QueuedProcess,
 		maxWait: number,
 	): never {
-		this.logMsg("warn", `Process ended with status=${completedProcess.status}`);
+		const statusDetails = process.status
+			? ` (last status=${process.status})`
+			: " (status missing)";
+
+		this.logMsg("warn", `Download process did not finish${statusDetails}`);
+
 		throw new LokaliseError(
-			`Download process took too long to finalize; effective=${maxWait}ms`,
-			500,
+			`Download process did not finish within ${maxWait}ms${statusDetails}`,
+			504,
 		);
 	}
 
@@ -650,6 +657,6 @@ export class LokaliseDownload extends LokaliseFileExchange {
 			this.handleFailedAsyncProcess(completedProcess);
 		}
 
-		this.handleUnexpectedAsyncProcess(completedProcess, pollMaximumWaitTime);
+		this.handleUnfinishedAsyncProcess(completedProcess, pollMaximumWaitTime);
 	}
 }

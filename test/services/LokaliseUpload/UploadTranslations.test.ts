@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import mock from "mock-fs";
+
 import { MockAgent, setGlobalDispatcher } from "undici";
+
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
+import { createTestFs, type TestFs } from "../../helpers/testFs.js";
 import type { Interceptable } from "../../setup.js";
 import {
 	afterAll,
@@ -19,9 +21,14 @@ import {
 describe("LokaliseUpload: uploadTranslations()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
 	const apiKey = process.env.API_KEY as string;
+
 	let lokaliseUpload: FakeLokaliseUpload;
+
 	let mockAgent: MockAgent;
 	let mockPool: Interceptable;
+
+	let testFs: TestFs;
+	let restoreCwd: () => void;
 
 	beforeAll(() => {
 		mockAgent = new MockAgent();
@@ -31,14 +38,11 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 
 	afterAll(() => {
 		mockAgent.close();
-		mock.restore();
 	});
 
-	beforeEach(() => {
-		lokaliseUpload = new FakeLokaliseUpload({ apiKey }, { projectId });
-
-		mock({
-			"./locales": {
+	beforeEach(async () => {
+		testFs = await createTestFs({
+			locales: {
 				"en.json": '{"key": "value"}',
 				"fake.weird_json": '{"en_GB": {"key": "value"}}',
 				"en_US.json": '{"key": "value"}',
@@ -55,11 +59,18 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 			},
 		});
 
+		restoreCwd = testFs.useAsCwd();
+
+		lokaliseUpload = new FakeLokaliseUpload({ apiKey }, { projectId });
+
 		mockPool = mockAgent.get("https://api.lokalise.com");
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.restoreAllMocks();
+
+		restoreCwd();
+		await testFs.cleanup();
 	});
 
 	describe("Basic Behavior", () => {
@@ -75,6 +86,7 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 				})
 				.reply(() => {
 					uploadCount++;
+
 					return {
 						statusCode: 200,
 						data: {
@@ -96,19 +108,24 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 				processUploadFileParams: {
 					filenameInferer: async (filePath) =>
 						path.extname(filePath) === ".weird_json" ? "en.json" : "",
-					languageInferer: async (filePath) =>
-						path.extname(filePath) === ".weird_json"
-							? Object.keys(
-									JSON.parse((await fs.promises.readFile(filePath)).toString()),
-								)[0]
-							: "",
+					languageInferer: async (filePath) => {
+						if (path.extname(filePath) !== ".weird_json") return "";
+
+						const content = await fs.promises.readFile(filePath, "utf8");
+						const translations = JSON.parse(content);
+
+						return Object.keys(translations)[0] ?? "";
+					},
 				},
 			});
 
 			expect(uploadCount).toEqual(jsonFilesCount);
 			expect(processes).toHaveLength(jsonFilesCount);
 			expect(errors).toHaveLength(0);
-			expect(processes[0].status).toEqual("queued");
+			const firstProcess = processes[0];
+
+			expect(firstProcess).toBeDefined();
+			expect(firstProcess?.status).toEqual("queued");
 		});
 
 		it("should not upload anything when no files were collected", async () => {
@@ -137,6 +154,7 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 				})
 				.reply(() => {
 					uploadCount++;
+
 					if (uploadCount === 2) {
 						return {
 							statusCode: 500,
@@ -146,23 +164,33 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 							}),
 						};
 					}
+
 					return {
 						statusCode: 200,
 						data: JSON.stringify({
-							process: { process_id: "123abc", status: "queued" },
+							process: {
+								process_id: "123abc",
+								status: "queued",
+							},
 						}),
 					};
 				})
 				.times(jsonFilesCount);
 
 			const { processes, errors } = await lokaliseUpload.uploadTranslations({
-				collectFileParams: { inputDirs: ["./locales"], extensions: [".json"] },
+				collectFileParams: {
+					inputDirs: ["./locales"],
+					extensions: [".json"],
+				},
 			});
 
 			expect(uploadCount).toEqual(jsonFilesCount);
 			expect(processes).toHaveLength(jsonFilesCount - errorsCount);
 			expect(errors).toHaveLength(errorsCount);
-			expect(errors[0].error).toBeInstanceOf(LokaliseError);
+
+			const firstError = errors[0];
+			expect(firstError).toBeDefined();
+			expect(firstError?.error).toBeInstanceOf(LokaliseError);
 		});
 	});
 
@@ -180,13 +208,13 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 				})
 				.reply(() => {
 					uploadCount++;
+
 					return {
 						statusCode: 200,
 						data: {
 							process: {
 								process_id: `${processIdPrefix}-${uploadCount}`,
 								// Missing status should be assumed as queued
-								// status: "queued",
 							},
 						},
 					};
@@ -202,6 +230,7 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 				})
 				.reply((req) => {
 					pollAttempts++;
+
 					const processId = req.path.split("/").pop();
 
 					const status =
@@ -222,7 +251,10 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 				.times(jsonFilesCount + cappedPollAttempts);
 
 			const { processes, errors } = await lokaliseUpload.uploadTranslations({
-				collectFileParams: { inputDirs: ["./locales"], extensions: [".json"] },
+				collectFileParams: {
+					inputDirs: ["./locales"],
+					extensions: [".json"],
+				},
 				processUploadFileParams: {
 					pollStatuses: true,
 					pollInitialWaitTime: 500,
@@ -237,6 +269,7 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 			for (const process of processes) {
 				expect(["finished", "cancelled", "failed"]).toContain(process.status);
 			}
+
 			expect(pollAttempts).toEqual(cappedPollAttempts + jsonFilesCount);
 		});
 	});

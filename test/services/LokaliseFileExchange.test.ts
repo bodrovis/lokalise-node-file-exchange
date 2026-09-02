@@ -118,7 +118,7 @@ describe("LokaliseFileExchange", () => {
 						},
 						{ projectId: "123.abc", retryParams: { maxRetries: -1 } },
 					);
-				}).toThrow("maxRetries must be greater than or equal to zero.");
+				}).toThrow("maxRetries must be a non-negative integer.");
 			});
 
 			it("should throw an error when initialSleepTime is non-positive", () => {
@@ -129,7 +129,7 @@ describe("LokaliseFileExchange", () => {
 						},
 						{ projectId: "123.abc", retryParams: { initialSleepTime: -1 } },
 					);
-				}).toThrow("initialSleepTime must be a positive value.");
+				}).toThrow("initialSleepTime must be a positive finite value.");
 			});
 
 			it("should throw an error when jitterRatio is negative or greater than 1", () => {
@@ -140,8 +140,53 @@ describe("LokaliseFileExchange", () => {
 						},
 						{ projectId: "123.abc", retryParams: { jitterRatio: -1 } },
 					);
-				}).toThrow("jitterRatio must be between 0 and 1.");
+				}).toThrow("jitterRatio must be a finite value between 0 and 1.");
 			});
+		});
+
+		describe("runWithConcurrencyLimit", () => {
+			it.each([0, -1, 1.5, NaN, Infinity])(
+				"should reject invalid concurrency limit: %s",
+				async (limit) => {
+					const exchanger = new FakeLokaliseFileExchange(
+						{ apiKey: "abc123" },
+						{ projectId: "123.abc" },
+					);
+
+					await expect(
+						exchanger.runWithConcurrencyLimit(
+							[1, 2, 3],
+							limit,
+							async (item) => item,
+						),
+					).rejects.toThrow("Concurrency limit must be a positive integer.");
+				},
+			);
+		});
+
+		describe("pollProcesses", () => {
+			const exchanger = new FakeLokaliseFileExchange(
+				{ apiKey: "abc123" },
+				{ projectId: "123.abc" },
+			);
+
+			it.each([0, -1, NaN, Infinity])(
+				"should reject invalid initial wait time: %s",
+				async (initialWaitTime) => {
+					await expect(
+						exchanger.pollProcesses([], initialWaitTime, 1000),
+					).rejects.toThrow("initialWaitTime must be a positive finite value.");
+				},
+			);
+
+			it.each([-1, NaN, Infinity])(
+				"should reject invalid maximum wait time: %s",
+				async (maxWaitTime) => {
+					await expect(
+						exchanger.pollProcesses([], 100, maxWaitTime),
+					).rejects.toThrow("maxWaitTime must be a non-negative finite value.");
+				},
+			);
 		});
 
 		describe("withExponentialBackoff", () => {

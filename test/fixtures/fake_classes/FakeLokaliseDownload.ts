@@ -10,33 +10,33 @@ import { LokaliseDownload } from "../../../lib/services/LokaliseDownload.js";
 
 // Public morozov
 export class FakeLokaliseDownload extends LokaliseDownload {
-	public async getTranslationsBundle(
+	public override async getTranslationsBundle(
 		downloadFileParams: DownloadFileParams,
 	): Promise<DownloadBundle> {
 		return await super.getTranslationsBundle(downloadFileParams);
 	}
 
-	public async getTranslationsBundleAsync(
+	public override async getTranslationsBundleAsync(
 		downloadFileParams: DownloadFileParams,
 	): Promise<QueuedProcess> {
 		return await super.getTranslationsBundleAsync(downloadFileParams);
 	}
 
-	public async downloadZip(
+	public override async downloadZip(
 		url: string,
 		downloadTimeout?: number | undefined,
 	): Promise<string> {
 		return await super.downloadZip(url, downloadTimeout);
 	}
 
-	public async unpackZip(
+	public override async unpackZip(
 		zipFilePath: string,
 		outputDir: string,
 	): Promise<void> {
 		return await super.unpackZip(zipFilePath, outputDir);
 	}
 
-	public async pollProcesses(
+	public override async pollProcesses(
 		processes: QueuedProcess[],
 		initialWaitTime: number,
 		maxWaitTime: number,
@@ -44,7 +44,7 @@ export class FakeLokaliseDownload extends LokaliseDownload {
 		return await super.pollProcesses(processes, initialWaitTime, maxWaitTime);
 	}
 
-	public async pollAsyncDownload(
+	public override async pollAsyncDownload(
 		downloadProcess: QueuedProcess,
 		initialWait: number,
 		maxWait: number,
@@ -52,22 +52,25 @@ export class FakeLokaliseDownload extends LokaliseDownload {
 		return super.pollAsyncDownload(downloadProcess, initialWait, maxWait);
 	}
 
-	public logMsg(level: LogLevel, ...args: unknown[]): void {
+	public override logMsg(level: LogLevel, ...args: unknown[]): void {
 		super.logMsg(level, ...args);
 	}
 
-	public async fetchBundleURLAsync(
+	public override async fetchBundleURLAsync(
 		downloadFileParams: DownloadFileParams,
 		processParams: Required<ProcessDownloadFileParams>,
 	): Promise<string> {
 		return super.fetchBundleURLAsync(downloadFileParams, processParams);
 	}
 
-	public processZipEntryPath(outputDir: string, entryFilename: string): string {
+	public override processZipEntryPath(
+		outputDir: string,
+		entryFilename: string,
+	): string {
 		return super.processZipEntryPath(outputDir, entryFilename);
 	}
 
-	public async handleZipEntry(
+	public override async handleZipEntry(
 		entry: yauzl.Entry,
 		zipfile: yauzl.ZipFile,
 		outputDir: string,
@@ -75,7 +78,7 @@ export class FakeLokaliseDownload extends LokaliseDownload {
 		return super.handleZipEntry(entry, zipfile, outputDir);
 	}
 
-	public async fetchZipResponse(
+	public override async fetchZipResponse(
 		bundleURL: URL,
 		signal: AbortSignal | undefined,
 		downloadTimeout: number,
@@ -83,7 +86,7 @@ export class FakeLokaliseDownload extends LokaliseDownload {
 		return super.fetchZipResponse(bundleURL, signal, downloadTimeout);
 	}
 
-	public buildTempZipPath(): string {
+	public override buildTempZipPath(): string {
 		return super.buildTempZipPath();
 	}
 }

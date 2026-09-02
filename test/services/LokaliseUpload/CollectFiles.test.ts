@@ -1,18 +1,18 @@
-import path from "node:path";
-import mock from "mock-fs";
 import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
+import { createTestFs, type TestFs } from "../../helpers/testFs.js";
 import { afterEach, beforeEach, describe, expect, it } from "../../setup.js";
 
 describe("LokaliseUpload: collectFiles()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
 	const apiKey = process.env.API_KEY as string;
+
 	let lokaliseUpload: FakeLokaliseUpload;
+	let testFs: TestFs;
+	let restoreCwd: () => void;
 
-	beforeEach(() => {
-		lokaliseUpload = new FakeLokaliseUpload({ apiKey }, { projectId });
-
-		mock({
-			"./locales": {
+	beforeEach(async () => {
+		testFs = await createTestFs({
+			locales: {
 				"en.json": '{"key": "value"}',
 				"fr.json": '{"clé": "valeur"}',
 				"backup.txt": "Not a JSON file",
@@ -24,32 +24,37 @@ describe("LokaliseUpload: collectFiles()", () => {
 					},
 				},
 			},
-			"./node_modules": {
+			node_modules: {
 				"module.js": "// This should be excluded",
 			},
-			"./dist": {
+			dist: {
 				"build.json": '{"build": true}',
 			},
 		});
+
+		restoreCwd = testFs.useAsCwd();
+
+		lokaliseUpload = new FakeLokaliseUpload({ apiKey }, { projectId });
 	});
 
-	afterEach(() => {
-		mock.restore();
+	afterEach(async () => {
+		restoreCwd();
+		await testFs.cleanup();
 	});
-
-	const fullPath = (p: string) => path.resolve(p);
 
 	describe("General Behavior", () => {
-		it("should collect all JSON files recursively by default", async () => {
+		it("should collect all files recursively by default", async () => {
 			const files = await lokaliseUpload.collectFiles();
+
 			const expectedFiles = [
-				fullPath("./locales/en.json"),
-				fullPath("./locales/fr.json"),
-				fullPath("./locales/backup.txt"),
-				fullPath("./locales/subdir/es.json"),
-				fullPath("./locales/subdir/nested/de.json"),
-				fullPath("./locales/subdir/nested/ignored.js"),
+				testFs.path("locales", "en.json"),
+				testFs.path("locales", "fr.json"),
+				testFs.path("locales", "backup.txt"),
+				testFs.path("locales", "subdir", "es.json"),
+				testFs.path("locales", "subdir", "nested", "de.json"),
+				testFs.path("locales", "subdir", "nested", "ignored.js"),
 			];
+
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
 		});
@@ -58,11 +63,13 @@ describe("LokaliseUpload: collectFiles()", () => {
 			const files = await lokaliseUpload.collectFiles({
 				recursive: false,
 			});
+
 			const expectedFiles = [
-				fullPath("./locales/en.json"),
-				fullPath("./locales/fr.json"),
-				fullPath("./locales/backup.txt"),
+				testFs.path("locales", "en.json"),
+				testFs.path("locales", "fr.json"),
+				testFs.path("locales", "backup.txt"),
 			];
+
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
 		});
@@ -71,6 +78,7 @@ describe("LokaliseUpload: collectFiles()", () => {
 			const files = await lokaliseUpload.collectFiles({
 				inputDirs: [],
 			});
+
 			expect(files).toEqual([]);
 			expect(files).toHaveLength(0);
 		});
@@ -81,12 +89,14 @@ describe("LokaliseUpload: collectFiles()", () => {
 			const files = await lokaliseUpload.collectFiles({
 				extensions: [".json"],
 			});
+
 			const expectedFiles = [
-				fullPath("./locales/en.json"),
-				fullPath("./locales/fr.json"),
-				fullPath("./locales/subdir/es.json"),
-				fullPath("./locales/subdir/nested/de.json"),
+				testFs.path("locales", "en.json"),
+				testFs.path("locales", "fr.json"),
+				testFs.path("locales", "subdir", "es.json"),
+				testFs.path("locales", "subdir", "nested", "de.json"),
 			];
+
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
 		});
@@ -95,13 +105,15 @@ describe("LokaliseUpload: collectFiles()", () => {
 			const files = await lokaliseUpload.collectFiles({
 				extensions: [".json", "JS"],
 			});
+
 			const expectedFiles = [
-				fullPath("./locales/en.json"),
-				fullPath("./locales/fr.json"),
-				fullPath("./locales/subdir/es.json"),
-				fullPath("./locales/subdir/nested/de.json"),
-				fullPath("./locales/subdir/nested/ignored.js"),
+				testFs.path("locales", "en.json"),
+				testFs.path("locales", "fr.json"),
+				testFs.path("locales", "subdir", "es.json"),
+				testFs.path("locales", "subdir", "nested", "de.json"),
+				testFs.path("locales", "subdir", "nested", "ignored.js"),
 			];
+
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
 		});
@@ -110,7 +122,9 @@ describe("LokaliseUpload: collectFiles()", () => {
 			const files = await lokaliseUpload.collectFiles({
 				fileNamePattern: "^en.*",
 			});
-			const expectedFiles = [fullPath("./locales/en.json")];
+
+			const expectedFiles = [testFs.path("locales", "en.json")];
+
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
 		});
@@ -120,7 +134,9 @@ describe("LokaliseUpload: collectFiles()", () => {
 				extensions: [".json"],
 				fileNamePattern: /^en.*/,
 			});
-			const expectedFiles = [fullPath("./locales/en.json")];
+
+			const expectedFiles = [testFs.path("locales", "en.json")];
+
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
 		});
@@ -131,11 +147,13 @@ describe("LokaliseUpload: collectFiles()", () => {
 			const files = await lokaliseUpload.collectFiles({
 				excludePatterns: ["nested", "backup"],
 			});
+
 			const expectedFiles = [
-				fullPath("./locales/en.json"),
-				fullPath("./locales/fr.json"),
-				fullPath("./locales/subdir/es.json"),
+				testFs.path("locales", "en.json"),
+				testFs.path("locales", "fr.json"),
+				testFs.path("locales", "subdir", "es.json"),
 			];
+
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
 		});
@@ -145,10 +163,29 @@ describe("LokaliseUpload: collectFiles()", () => {
 				excludePatterns: [/locales\\subdir/, /locales\/subdir/, /en\.json$/i],
 				extensions: [".json"],
 			});
-			const expectedFiles = [fullPath("./locales/fr.json")];
+
+			const expectedFiles = [testFs.path("locales", "fr.json")];
 
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
+		});
+
+		it("should consistently apply a global exclude pattern to multiple files", async () => {
+			await testFs.write(
+				{
+					"one.json": "{}",
+					"two.json": "{}",
+					"three.txt": "text",
+				},
+				"global-exclude",
+			);
+
+			const files = await lokaliseUpload.collectFiles({
+				inputDirs: [testFs.path("global-exclude")],
+				excludePatterns: [/\.json$/g],
+			});
+
+			expect(files).toEqual([testFs.path("global-exclude", "three.txt")]);
 		});
 	});
 
@@ -171,6 +208,29 @@ describe("LokaliseUpload: collectFiles()", () => {
 			);
 		});
 
+		it("should consistently apply a global filename pattern to multiple files", async () => {
+			await testFs.write(
+				{
+					"one.json": "{}",
+					"two.json": "{}",
+					"three.json": "{}",
+					"ignored.txt": "text",
+				},
+				"global-regex",
+			);
+
+			const files = await lokaliseUpload.collectFiles({
+				inputDirs: [testFs.path("global-regex")],
+				fileNamePattern: /\.json$/g,
+			});
+
+			expect(files).toEqual([
+				testFs.path("global-regex", "one.json"),
+				testFs.path("global-regex", "three.json"),
+				testFs.path("global-regex", "two.json"),
+			]);
+		});
+
 		it("should throw an error for excludePatterns when a non-Error is thrown", async () => {
 			const badPattern = {
 				toString() {
@@ -185,16 +245,11 @@ describe("LokaliseUpload: collectFiles()", () => {
 			).rejects.toThrow("Invalid excludePatterns: NON_ERROR");
 		});
 
-		it("should handle invalid or inaccessible directories gracefully", async () => {
-			mock({
-				"./locales": mock.directory({
-					mode: 0o000, // No read permissions
-				}),
+		it("should handle invalid directories gracefully", async () => {
+			const files = await lokaliseUpload.collectFiles({
+				inputDirs: [testFs.path("does-not-exist")],
 			});
 
-			const files = await lokaliseUpload.collectFiles({
-				inputDirs: ["./locales"],
-			});
 			expect(files).toEqual([]);
 			expect(files).toHaveLength(0);
 		});
@@ -204,16 +259,14 @@ describe("LokaliseUpload: collectFiles()", () => {
 				extensions: [".txt"],
 				fileNamePattern: "^nonexistent.*",
 			});
+
 			expect(files).toEqual([]);
 			expect(files).toHaveLength(0);
 		});
 
 		it("should process multiple input directories", async () => {
-			mock({
-				"./locales": {
-					"en.json": '{"key": "value"}',
-				},
-				"./additional_locales": {
+			await testFs.write({
+				additional_locales: {
 					"fr.json": '{"clé": "valeur"}',
 				},
 			});
@@ -221,10 +274,17 @@ describe("LokaliseUpload: collectFiles()", () => {
 			const files = await lokaliseUpload.collectFiles({
 				inputDirs: ["./locales", "./additional_locales"],
 			});
+
 			const expectedFiles = [
-				fullPath("./locales/en.json"),
-				fullPath("./additional_locales/fr.json"),
+				testFs.path("locales", "en.json"),
+				testFs.path("locales", "fr.json"),
+				testFs.path("locales", "backup.txt"),
+				testFs.path("locales", "subdir", "es.json"),
+				testFs.path("locales", "subdir", "nested", "de.json"),
+				testFs.path("locales", "subdir", "nested", "ignored.js"),
+				testFs.path("additional_locales", "fr.json"),
 			];
+
 			expect(files).toEqual(expect.arrayContaining(expectedFiles));
 			expect(files).toHaveLength(expectedFiles.length);
 		});

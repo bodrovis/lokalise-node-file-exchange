@@ -70,7 +70,11 @@ export class LokaliseUpload extends LokaliseFileExchange {
 			this.logMsg("debug", "Polling completed!");
 		}
 
-		this.logMsg("debug", "Upload successful!");
+		if (errors.length === 0) {
+			this.logMsg("debug", "Upload successful!");
+		} else {
+			this.logMsg("warn", `Upload completed with ${errors.length} error(s).`);
+		}
 
 		return { processes: completedProcesses, errors };
 	}
@@ -303,7 +307,7 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		const matchesExtension =
 			normalizedExtensions.includes(".*") ||
 			normalizedExtensions.includes(fileExt);
-		const matchesFilenamePattern = fileNameRegex.test(entry.name);
+		const matchesFilenamePattern = this.testRegex(fileNameRegex, entry.name);
 
 		return matchesExtension && matchesFilenamePattern;
 	}
@@ -368,7 +372,10 @@ export class LokaliseUpload extends LokaliseFileExchange {
 	 */
 	private shouldExclude(filePath: string, rx: RegExp[]): boolean {
 		const posix = this.toPosixPath(filePath);
-		return rx.some((r) => r.test(filePath) || r.test(posix));
+
+		return rx.some(
+			(r) => this.testRegex(r, filePath) || this.testRegex(r, posix),
+		);
 	}
 
 	/**
@@ -486,5 +493,21 @@ export class LokaliseUpload extends LokaliseFileExchange {
 	 */
 	private toPosixPath(p: string): string {
 		return p.split(path.sep).join(path.posix.sep);
+	}
+
+	/**
+	 * Tests a value against a regular expression without retaining state between calls.
+	 *
+	 * Global (`g`) and sticky (`y`) regular expressions mutate `lastIndex` when
+	 * `test()` is called, which can cause repeated checks to produce inconsistent results.
+	 * Resetting `lastIndex` ensures each value is tested independently.
+	 *
+	 * @param regex - The regular expression to test.
+	 * @param value - The string value to test against the regular expression.
+	 * @returns `true` if the value matches the regular expression, otherwise `false`.
+	 */
+	private testRegex(regex: RegExp, value: string): boolean {
+		regex.lastIndex = 0;
+		return regex.test(value);
 	}
 }

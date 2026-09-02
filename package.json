@@ -29,7 +29,8 @@
 		"lint:fix": "npx @biomejs/biome check --write ./",
 		"lint:fix:unsafe": "npx @biomejs/biome check --write --unsafe ./",
 		"format": "npx @biomejs/biome format ./",
-		"format:fix": "npx @biomejs/biome format --write ./"
+		"format:fix": "npx @biomejs/biome format --write ./",
+		"typecheck": "tsc -p tsconfig.test.json --noEmit"
 	},
 	"publishConfig": {
 		"access": "public"
@@ -41,11 +42,9 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.0.6",
-		"@types/mock-fs": "^4.13.4",
 		"@types/node": "^26.0.1",
 		"@types/yauzl": "^3.4.0",
 		"@vitest/coverage-v8": "^4.0.3",
-		"mock-fs": "^5.4.1",
 		"tsdown": "^0.22.0",
 		"typescript": "^7.0.2",
 		"undici": "^8.10.1",

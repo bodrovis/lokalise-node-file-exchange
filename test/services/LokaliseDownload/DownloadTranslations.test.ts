@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+
 import type { FileFormat, QueuedProcess } from "@lokalise/node-api";
-import mockFs from "mock-fs";
+
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
+import { createTestFs, type TestFs } from "../../helpers/testFs.js";
 import {
 	afterEach,
 	beforeEach,
@@ -17,31 +19,51 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
 	const apiKey = process.env.API_KEY as string;
 	const downloadFileParams = { format: "json" as FileFormat };
-	const extractParams = { outputDir: "/output/dir" };
 
-	let downloader: FakeLokaliseDownload;
-	const demoZipPath = path.resolve(
+	const demoZipFixturePath = path.resolve(
 		__dirname,
 		"../../fixtures/demo_archive.zip",
 	);
-	const invalidZipPath = path.resolve(
+
+	const invalidZipFixturePath = path.resolve(
 		__dirname,
 		"../../fixtures/invalid_archive.zip",
 	);
-	const mockOutputDir = "/output/dir";
 
-	beforeEach(() => {
-		downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-		mockFs({
-			[demoZipPath]: fs.readFileSync(demoZipPath),
-			[invalidZipPath]: fs.readFileSync(invalidZipPath),
-			[mockOutputDir]: {},
+	let downloader: FakeLokaliseDownload;
+	let testFs: TestFs;
+	let restoreCwd: () => void;
+	let demoZipPath: string;
+	let invalidZipPath: string;
+	let extractParams: { outputDir: string };
+
+	beforeEach(async () => {
+		testFs = await createTestFs({
+			archives: {
+				"demo_archive.zip": fs.readFileSync(demoZipFixturePath),
+				"invalid_archive.zip": fs.readFileSync(invalidZipFixturePath),
+			},
+			output: {
+				dir: {},
+			},
 		});
+
+		restoreCwd = testFs.useAsCwd();
+
+		demoZipPath = testFs.path("archives", "demo_archive.zip");
+		invalidZipPath = testFs.path("archives", "invalid_archive.zip");
+		extractParams = {
+			outputDir: testFs.path("output", "dir"),
+		};
+
+		downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.restoreAllMocks();
-		mockFs.restore();
+
+		restoreCwd();
+		await testFs.cleanup();
 	});
 
 	describe("Success Cases", () => {
@@ -50,24 +72,33 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				bundle_url: "https://example.com/translations.zip",
 				project_id: projectId,
 			});
+
 			vi.spyOn(downloader, "downloadZip").mockResolvedValue(demoZipPath);
-			const unlinkSpy = vi
-				.spyOn(fs.promises, "unlink")
-				.mockResolvedValue(undefined);
 
 			await expect(
 				downloader.downloadTranslations({ downloadFileParams, extractParams }),
 			).resolves.not.toThrow();
 
-			expect(fs.existsSync("/output/dir/en/en.json")).toBe(true);
-			expect(fs.existsSync("/output/dir/fr_CA/no_filename.json")).toBe(true);
+			expect(fs.existsSync(testFs.path("output", "dir", "en", "en.json"))).toBe(
+				true,
+			);
+
+			expect(
+				fs.existsSync(
+					testFs.path("output", "dir", "fr_CA", "no_filename.json"),
+				),
+			).toBe(true);
 
 			const jsonContent = JSON.parse(
-				fs.readFileSync("/output/dir/fr_FR/fr_FR.json", "utf8"),
+				fs.readFileSync(
+					testFs.path("output", "dir", "fr_FR", "fr_FR.json"),
+					"utf8",
+				),
 			);
+
 			expect(jsonContent).toEqual({ welcome: "Bienvenue!" });
 
-			expect(unlinkSpy).toHaveBeenCalledWith(demoZipPath);
+			expect(fs.existsSync(demoZipPath)).toBe(false);
 		});
 	});
 
@@ -77,20 +108,18 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				bundle_url: "https://example.com/translations.zip",
 				project_id: projectId,
 			});
+
 			vi.spyOn(downloader, "downloadZip").mockResolvedValue(demoZipPath);
+
 			vi.spyOn(downloader, "unpackZip").mockRejectedValue(
 				new Error("Extraction failed"),
 			);
-
-			const unlinkSpy = vi
-				.spyOn(fs.promises, "unlink")
-				.mockResolvedValue(undefined);
 
 			await expect(
 				downloader.downloadTranslations({ downloadFileParams, extractParams }),
 			).rejects.toThrow("Extraction failed");
 
-			expect(unlinkSpy).toHaveBeenCalledWith(demoZipPath);
+			expect(fs.existsSync(demoZipPath)).toBe(false);
 		});
 
 		it("should throw an error if the file is not a valid ZIP archive", async () => {
@@ -98,6 +127,7 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				bundle_url: "https://example.com/translations.zip",
 				project_id: "test-project-id",
 			});
+
 			vi.spyOn(downloader, "downloadZip").mockResolvedValue(invalidZipPath);
 
 			await expect(
@@ -105,6 +135,8 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 			).rejects.toThrow(
 				"End of central directory record signature not found. Either not a zip file, or file is truncated.",
 			);
+
+			expect(fs.existsSync(invalidZipPath)).toBe(false);
 		});
 
 		it("should throw if async download process is not found after polling", async () => {
@@ -244,14 +276,14 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				bundle_url: "https://example.com/translations.zip",
 				project_id: projectId,
 			});
-			const nonexistentZipPath = "/nonexistent/path/to/translations.zip";
+
+			const nonexistentZipPath = testFs.path("nonexistent", "translations.zip");
+
 			vi.spyOn(downloader, "downloadZip").mockResolvedValue(nonexistentZipPath);
 
 			await expect(
 				downloader.downloadTranslations({ downloadFileParams, extractParams }),
-			).rejects.toThrow(
-				`ENOENT, no such file or directory '${nonexistentZipPath}'`,
-			);
+			).rejects.toThrow(/ENOENT/);
 		});
 
 		it("should handle missing extractParams gracefully", async () => {
@@ -259,13 +291,16 @@ describe("LokaliseDownload: downloadTranslations()", () => {
 				bundle_url: "https://example.com/translations.zip",
 				project_id: projectId,
 			});
+
 			vi.spyOn(downloader, "downloadZip").mockResolvedValue(demoZipPath);
 
 			await expect(
 				downloader.downloadTranslations({ downloadFileParams }),
 			).resolves.not.toThrow();
 
-			expect(fs.existsSync("./en/en.json")).toBe(true); // Default outputDir "./"
+			expect(fs.existsSync(testFs.path("en", "en.json"))).toBe(true);
+
+			expect(fs.existsSync(demoZipPath)).toBe(false);
 		});
 	});
 });

@@ -6,13 +6,13 @@ import { LokaliseUpload } from "../../../lib/services/LokaliseUpload.js";
 
 // Public morozov
 export class FakeLokaliseUpload extends LokaliseUpload {
-	public async uploadSingleFile(
+	public override async uploadSingleFile(
 		uploadParams: UploadFileParams,
 	): Promise<QueuedProcess> {
 		return await super.uploadSingleFile(uploadParams);
 	}
 
-	public async processFile(
+	public override async processFile(
 		file: string,
 		projectRoot: string,
 		processParams?: ProcessUploadFileParams,
@@ -20,7 +20,7 @@ export class FakeLokaliseUpload extends LokaliseUpload {
 		return await super.processFile(file, projectRoot, processParams);
 	}
 
-	public async collectFiles({
+	public override async collectFiles({
 		inputDirs = ["./locales"],
 		extensions = [".*"],
 		excludePatterns = [],

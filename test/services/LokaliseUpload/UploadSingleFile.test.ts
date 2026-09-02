@@ -98,7 +98,12 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 				{ apiKey },
 				{
 					projectId,
-					retryParams: { maxRetries: retries, initialSleepTime: sleepTime },
+					retryParams: {
+						maxRetries: retries,
+						initialSleepTime: sleepTime,
+						jitterRatio: 0,
+						rng: () => 0,
+					},
 				},
 			);
 
@@ -141,14 +146,47 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 			expect(sleepSpy).toHaveBeenNthCalledWith(2, sleepTime * 2 ** 1);
 		});
 
+		it("should attempt the upload at least once when maxRetries is zero", async () => {
+			const uploader = new FakeLokaliseUpload(
+				{ apiKey },
+				{ projectId, retryParams: { maxRetries: 0 } },
+			);
+
+			const processId = "123abc";
+
+			mockPool
+				.intercept({
+					path: `/api2/projects/${projectId}/files/upload`,
+					method: "POST",
+					body: JSON.stringify(mockParams),
+				})
+				.reply(200, {
+					project_id: projectId,
+					process: {
+						process_id: processId,
+						status: "queued",
+					},
+				});
+
+			const result = await uploader.uploadSingleFile(mockParams);
+
+			expect(result.process_id).toBe(processId);
+		});
+
 		it("should throw a LokaliseError after exceeding retries on 408 errors", async () => {
 			const retries = 3;
 			const sleepTime = 1;
+
 			const uploader = new FakeLokaliseUpload(
 				{ apiKey },
 				{
 					projectId,
-					retryParams: { maxRetries: retries, initialSleepTime: sleepTime },
+					retryParams: {
+						maxRetries: retries,
+						initialSleepTime: sleepTime,
+						jitterRatio: 0,
+						rng: () => 0,
+					},
 				},
 			);
 
@@ -168,16 +206,13 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 				.reply(408, { message: "Request Timeout", code: 408 })
 				.times(retries + 1);
 
-			try {
-				await uploader.uploadSingleFile(mockParams);
-			} catch (e) {
-				expect(e).toBeInstanceOf(LokaliseError);
-
-				const err = e as LokaliseError;
-				expect(err.message).toEqual("Maximum retries reached: Request Timeout");
-				expect(err.code).toEqual(408);
-				expect(err.details).toEqual({ reason: "server error without details" });
-			}
+			await expect(uploader.uploadSingleFile(mockParams)).rejects.toMatchObject(
+				{
+					message: "Maximum retries reached: Request Timeout",
+					code: 408,
+					details: { reason: "server error without details" },
+				},
+			);
 
 			expect(sleepSpy).toHaveBeenCalledTimes(retries);
 			expect(sleepSpy).toHaveBeenNthCalledWith(1, sleepTime * 2 ** 0);

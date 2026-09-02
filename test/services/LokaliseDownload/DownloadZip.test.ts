@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
-import type yauzl from "yauzl";
+import yauzl from "yauzl";
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
 import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
 import type { Interceptable } from "../../setup.js";
@@ -19,12 +20,6 @@ import {
 	setGlobalDispatcher,
 	vi,
 } from "../../setup.js";
-
-type MockWriteStream = fs.WriteStream & {
-	path: string;
-	bytesWritten: number;
-	pending: boolean;
-};
 
 describe("LokaliseDownload: downloadZip()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
@@ -58,27 +53,21 @@ describe("LokaliseDownload: downloadZip()", () => {
 			const mockZipContent = "Mock ZIP file content";
 			const mockTempPath = "/mock/temp/lokalise-translations.zip";
 
-			vi.spyOn(path, "join").mockReturnValue(mockTempPath);
+			vi.spyOn(downloader, "buildTempZipPath").mockReturnValue(mockTempPath);
 			vi.spyOn(fs, "createWriteStream").mockImplementation(
-				(filePath): fs.WriteStream => {
-					const { Writable } = require("node:stream");
+				(filePath: fs.PathLike) => {
 					const stream = new Writable({
-						write(
-							_chunk: unknown,
-							_encoding: BufferEncoding,
-							callback: (err?: Error | null) => void,
-						) {
-							callback(); // Simulate writing to the stream
+						write(_chunk, _encoding, callback) {
+							callback();
 						},
 					});
 
-					const mockStream: MockWriteStream = Object.assign(stream, {
-						path: filePath,
+					return Object.assign(stream, {
+						path: filePath.toString(),
 						bytesWritten: 0,
 						pending: false,
-					});
-
-					return mockStream;
+						close() {},
+					}) as fs.WriteStream;
 				},
 			);
 
@@ -96,10 +85,7 @@ describe("LokaliseDownload: downloadZip()", () => {
 			);
 
 			expect(zipPath).toBe(mockTempPath);
-			expect(path.join).toHaveBeenCalledWith(
-				os.tmpdir(),
-				expect.stringMatching(/^lokalise-.*\.zip$/),
-			);
+			expect(downloader.buildTempZipPath).toHaveBeenCalled();
 			expect(fs.createWriteStream).toHaveBeenCalledWith(mockTempPath);
 		});
 	});
@@ -121,16 +107,12 @@ describe("LokaliseDownload: downloadZip()", () => {
 		});
 
 		it("should throw an error if the response body is null", async () => {
-			// Save the original fetch
-			const originalFetch = global.fetch;
-
-			// Mock fetch
-			global.fetch = vi.fn().mockResolvedValue({
+			vi.spyOn(globalThis, "fetch").mockResolvedValue({
 				ok: true,
 				status: 200,
 				statusText: "OK",
 				body: null,
-			});
+			} as Response);
 
 			await expect(
 				downloader.downloadZip("https://example.com/download.zip"),
@@ -139,9 +121,6 @@ describe("LokaliseDownload: downloadZip()", () => {
 					"Response body is null. Cannot download ZIP file from URL: https://example.com/download.zip",
 				),
 			);
-
-			// Restore the original fetch
-			global.fetch = originalFetch;
 		});
 
 		it("should throw an error for a malformed URL", async () => {
@@ -153,7 +132,7 @@ describe("LokaliseDownload: downloadZip()", () => {
 		it("should throw an error if the stream fails during download", async () => {
 			const mockTempPath = "/mock/temp/lokalise-translations.zip";
 
-			vi.spyOn(path, "join").mockReturnValue(mockTempPath);
+			vi.spyOn(downloader, "buildTempZipPath").mockReturnValue(mockTempPath);
 			vi.spyOn(fs, "createWriteStream").mockImplementation(
 				(filePath: fs.PathLike) => {
 					// Ensure filePath is strictly of type string or Buffer
@@ -176,12 +155,11 @@ describe("LokaliseDownload: downloadZip()", () => {
 							// Simulate close functionality
 						}
 
-						_write(
-							_chunk: string,
-							_encoding: string,
+						override _write(
+							_chunk: unknown,
+							_encoding: BufferEncoding,
 							callback: (error?: Error | null) => void,
-						) {
-							// Simulate a stream write error
+						): void {
 							callback(new Error("Stream write error"));
 						}
 					}
@@ -223,11 +201,11 @@ describe("LokaliseDownload: downloadZip()", () => {
 	});
 
 	describe("Edge Cases", () => {
-		it("should handle a slow response gracefully", async () => {
+		it("should handle slow stream writes gracefully", async () => {
 			const mockZipContent = "Mock ZIP file content";
 			const mockTempPath = "/mock/temp/lokalise-translations.zip";
 
-			vi.spyOn(path, "join").mockReturnValue(mockTempPath);
+			vi.spyOn(downloader, "buildTempZipPath").mockReturnValue(mockTempPath);
 			vi.spyOn(fs, "createWriteStream").mockImplementation(
 				(filePath: fs.PathLike) => {
 					// Ensure filePath is strictly of type string or Buffer
@@ -323,6 +301,35 @@ describe("ZIP processing", () => {
 		});
 	});
 
+	it("should wrap non-Error fetch failures", async () => {
+		vi.spyOn(globalThis, "fetch").mockRejectedValue("BLACK_MAGIC");
+
+		await expect(
+			downloader.fetchZipResponse(
+				new URL("https://example.com/download.zip"),
+				undefined,
+				1000,
+			),
+		).rejects.toEqual(
+			new LokaliseError(
+				"An unknown error occurred. This might indicate a bug.",
+				500,
+				{
+					reason: "BLACK_MAGIC",
+				},
+			),
+		);
+	});
+
+	it("allows filenames starting with two dots", () => {
+		const outputDir = "/tmp/extract";
+		const safe = "..foo.json";
+
+		const full = downloader.processZipEntryPath(outputDir, safe);
+
+		expect(full).toBe(path.resolve(outputDir, safe));
+	});
+
 	it("throws on malicious ZIP entry (path traversal)", () => {
 		const outputDir = "/tmp/extract";
 		const malicious = "../evil.txt";
@@ -352,6 +359,52 @@ describe("ZIP processing", () => {
 		expect(full).toBe(path.resolve(outputDir, safe));
 	});
 
+	it("closes the ZIP file when processing an entry fails", async () => {
+		const entry = {
+			fileName: "file.txt",
+		} as yauzl.Entry;
+
+		const zipfile = Object.assign(new EventEmitter(), {
+			readEntry: vi.fn(),
+			close: vi.fn(),
+		}) as unknown as yauzl.ZipFile;
+
+		vi.spyOn(yauzl, "open").mockImplementation(
+			(
+				_path: string,
+				optionsOrCallback?:
+					| yauzl.Options
+					| ((err: Error | null, zipfile: yauzl.ZipFile) => void),
+				callback?: (err: Error | null, zipfile: yauzl.ZipFile) => void,
+			) => {
+				const cb =
+					typeof optionsOrCallback === "function"
+						? optionsOrCallback
+						: callback;
+
+				if (!cb) {
+					throw new Error("Callback is required");
+				}
+
+				cb(null, zipfile);
+
+				queueMicrotask(() => {
+					zipfile.emit("entry", entry);
+				});
+			},
+		);
+
+		const error = new Error("Entry processing failed");
+
+		vi.spyOn(downloader, "handleZipEntry").mockRejectedValue(error);
+
+		await expect(
+			downloader.unpackZip("/tmp/archive.zip", "/tmp/output"),
+		).rejects.toBe(error);
+
+		expect(zipfile.close).toHaveBeenCalledOnce();
+	});
+
 	it("rejects when zipfile.openReadStream returns an error", async () => {
 		const entry: yauzl.Entry = {
 			fileName: "file.txt",
@@ -370,7 +423,7 @@ describe("ZIP processing", () => {
 
 		await expect(
 			downloader.handleZipEntry(entry, zipfile, "/tmp/out"),
-		).rejects.toThrowError(LokaliseError);
+		).rejects.toThrow(LokaliseError);
 
 		await expect(
 			downloader.handleZipEntry(entry, zipfile, "/tmp/out"),
