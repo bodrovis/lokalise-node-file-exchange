@@ -48,7 +48,7 @@
 		"tsdown": "^0.22.0",
 		"typescript": "^7.0.2",
 		"undici": "^8.10.1",
-		"vitest": "^4.0.3"
+		"vitest": "^5.0.1"
 	},
 	"bugs": {
 		"url": "https://github.com/bodrovis/lokalise-node-file-exchange/issues"
