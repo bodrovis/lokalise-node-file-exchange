@@ -34,7 +34,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
 
-      - uses: qltysh/qlty-action/coverage@08a0a862c159eae9b9003081da6663d96efef637
+      - uses: qltysh/qlty-action/coverage@c9b09987143d1e4ac955f4803c7bea742102feb5
         if: matrix.node-version == 24
         with:
           token: ${{secrets.QLTY_COVERAGE_TOKEN}}
