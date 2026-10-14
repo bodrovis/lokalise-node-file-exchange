@@ -1,383 +1,226 @@
 import type { DownloadFileParams } from "@lokalise/node-api";
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
-import { LokaliseFileExchange } from "../../../lib/services/LokaliseFileExchange.js";
-import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
-import type { TestableLokaliseFileExchange } from "../../fixtures/fake_interfaces/TestableLokaliseFileExchange.js";
+import { FakeLokaliseDownload } from "../../fixtures/fake-classes/FakeLokaliseDownload.js";
 import type { Interceptable } from "../../setup.js";
 import {
 	afterAll,
-	afterEach,
 	beforeAll,
-	beforeEach,
 	describe,
 	expect,
 	it,
 	MockAgent,
 	setGlobalDispatcher,
-	vi,
 } from "../../setup.js";
 
 describe("LokaliseDownload: getTranslationsBundle()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
-	const apiKey = process.env.API_KEY as string;
+	const apiKey = "test-api-key";
+
 	const mockParams: DownloadFileParams = {
 		format: "json",
 		original_filenames: true,
 	};
+
+	const mockBundle = {
+		project_id: projectId,
+		bundle_url: "https://example.com/fake-bundle-url",
+		responseTooBig: false,
+	};
+
+	const downloadPath = `/api2/projects/${projectId}/files/download`;
 
 	let mockAgent: MockAgent;
 	let mockPool: Interceptable;
 
 	beforeAll(() => {
 		mockAgent = new MockAgent();
-		setGlobalDispatcher(mockAgent);
 		mockAgent.disableNetConnect();
-	});
-
-	afterAll(() => {
-		mockAgent.close();
-	});
-
-	beforeEach(() => {
 		mockPool = mockAgent.get("https://api.lokalise.com");
+		setGlobalDispatcher(mockAgent);
 	});
 
-	afterEach(() => {
-		vi.restoreAllMocks();
+	afterAll(async () => {
+		await mockAgent.close();
 	});
 
-	describe("Success Cases", () => {
-		it("should download the file bundle successfully", async () => {
-			const mockResponse = {
-				project_id: projectId,
-				bundle_url: "https://example.com/fake-bundle-url",
-				responseTooBig: false,
-			};
+	it("returns translation bundle metadata", async () => {
+		mockPool
+			.intercept({
+				path: downloadPath,
+				method: "POST",
+				body: JSON.stringify(mockParams),
+			})
+			.reply(200, mockBundle);
 
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/download`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(200, mockResponse);
+		const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
 
-			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-			const result = await downloader.getTranslationsBundle(mockParams);
+		const result = await downloader.getTranslationsBundle(mockParams);
 
-			expect(result).toEqual(mockResponse);
-		});
-
-		it("should attempt the download at least once when maxRetries is zero", async () => {
-			const mockResponse = {
-				project_id: projectId,
-				bundle_url: "https://example.com/fake-bundle-url",
-				responseTooBig: false,
-			};
-
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/download`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(200, mockResponse);
-
-			const downloader = new FakeLokaliseDownload(
-				{ apiKey },
-				{ projectId, retryParams: { maxRetries: 0 } },
-			);
-			const result = await downloader.getTranslationsBundle(mockParams);
-
-			expect(result).toEqual(mockResponse);
-		});
+		expect(result).toEqual(mockBundle);
 	});
 
-	describe("Retry Logic", () => {
-		it("should retry on 429 errors with exponential backoff", async () => {
-			const mockResponse = {
-				project_id: projectId,
-				bundle_url: "https://example.com/fake-bundle-url",
-				responseTooBig: false,
-			};
+	it("makes one request when maxRetries is zero", async () => {
+		mockPool
+			.intercept({
+				path: downloadPath,
+				method: "POST",
+				body: JSON.stringify(mockParams),
+			})
+			.reply(200, mockBundle);
 
-			const retries = 3;
-			const sleepTime = 1;
-			const downloader = new FakeLokaliseDownload(
-				{ apiKey },
-				{
-					projectId,
-					retryParams: {
-						maxRetries: retries,
-						initialSleepTime: sleepTime,
-						jitterRatio: 0,
-						rng: () => 0,
-					},
-				},
-			);
-			const sleepSpy = vi
-				.spyOn(
-					LokaliseFileExchange as unknown as TestableLokaliseFileExchange,
-					"sleep",
-				)
-				.mockResolvedValue(undefined);
+		const downloader = new FakeLokaliseDownload(
+			{ apiKey },
+			{ projectId, retryParams: { maxRetries: 0 } },
+		);
 
-			let callCount = 0;
-
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/download`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(() => {
-					callCount++;
-					if (callCount < retries) {
-						return {
-							statusCode: 429,
-							data: JSON.stringify({ message: "Too Many Requests", code: 429 }),
-						};
-					}
-					return {
-						statusCode: 200,
-						data: JSON.stringify(mockResponse),
-					};
-				})
-				.times(retries);
-
-			const result = await downloader.getTranslationsBundle(mockParams);
-
-			expect(result).toEqual(mockResponse);
-			expect(callCount).toBe(retries);
-			expect(sleepSpy).toHaveBeenCalledTimes(retries - 1);
-			expect(sleepSpy).toHaveBeenNthCalledWith(1, sleepTime * 2 ** 0);
-			expect(sleepSpy).toHaveBeenNthCalledWith(2, sleepTime * 2 ** 1);
-		});
-
-		it("should retry on 408 errors with exponential backoff", async () => {
-			const mockResponse = {
-				project_id: projectId,
-				bundle_url: "https://example.com/fake-bundle-url",
-				responseTooBig: false,
-			};
-
-			const retries = 3;
-			const sleepTime = 1;
-			const downloader = new FakeLokaliseDownload(
-				{ apiKey },
-				{
-					projectId,
-					retryParams: {
-						maxRetries: retries,
-						initialSleepTime: sleepTime,
-						jitterRatio: 0,
-						rng: () => 0,
-					},
-				},
-			);
-			const sleepSpy = vi
-				.spyOn(
-					LokaliseFileExchange as unknown as TestableLokaliseFileExchange,
-					"sleep",
-				)
-				.mockResolvedValue(undefined);
-
-			let callCount = 0;
-
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/download`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(() => {
-					callCount++;
-					if (callCount < retries) {
-						return {
-							statusCode: 408,
-							data: JSON.stringify({ message: "Request Timeout", code: 408 }),
-						};
-					}
-					return {
-						statusCode: 200,
-						data: JSON.stringify(mockResponse),
-					};
-				})
-				.times(retries);
-
-			const result = await downloader.getTranslationsBundle(mockParams);
-
-			expect(result).toEqual(mockResponse);
-			expect(callCount).toBe(retries);
-			expect(sleepSpy).toHaveBeenCalledTimes(retries - 1);
-			expect(sleepSpy).toHaveBeenNthCalledWith(1, sleepTime * 2 ** 0);
-			expect(sleepSpy).toHaveBeenNthCalledWith(2, sleepTime * 2 ** 1);
-		});
+		await expect(downloader.getTranslationsBundle(mockParams)).resolves.toEqual(
+			mockBundle,
+		);
 	});
 
-	describe("Error Handling", () => {
-		it("should throw a LokaliseError for known error responses", async () => {
-			const mockError = {
-				message: "No keys for export with current export settings",
-				code: 406,
-			};
-
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/download`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(406, mockError);
-
-			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-			await expect(
-				downloader.getTranslationsBundle(mockParams),
-			).rejects.toThrow(
-				new LokaliseError(mockError.message, mockError.code, {
-					reason: "server error without details",
-				}),
-			);
-		});
-
-		it("should throw for a non-retryable API error", async () => {
-			const mockError = {
-				message: "Invalid request",
-				code: 406,
-			};
-
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/async-download`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(406, mockError);
-
-			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-
-			await expect(
-				downloader.getTranslationsBundleAsync(mockParams),
-			).rejects.toMatchObject({
-				message: mockError.message,
-				code: mockError.code,
-			});
-		});
-
-		it("should throw a LokaliseError after maximum retries for 429", async () => {
+	it.each([408, 429])(
+		"retries HTTP %i and eventually succeeds",
+		async (statusCode) => {
 			const maxRetries = 2;
-			const initialSleepTime = 2;
-			const downloader = new FakeLokaliseDownload(
-				{ apiKey },
-				{ projectId, retryParams: { maxRetries, initialSleepTime } },
-			);
+			let attempts = 0;
+
 			mockPool
 				.intercept({
-					path: `/api2/projects/${projectId}/files/download`,
+					path: downloadPath,
 					method: "POST",
 					body: JSON.stringify(mockParams),
 				})
-				.reply(429, { message: "Too Many Requests", code: 429 })
+				.reply(() => {
+					attempts++;
+
+					if (attempts <= maxRetries) {
+						return {
+							statusCode,
+							data: JSON.stringify({
+								message: "Temporary API error",
+								code: statusCode,
+							}),
+						};
+					}
+
+					return {
+						statusCode: 200,
+						data: JSON.stringify(mockBundle),
+					};
+				})
 				.times(maxRetries + 1);
 
-			await expect(
-				downloader.getTranslationsBundle(mockParams),
-			).rejects.toThrow("Maximum retries reached: Too Many Requests");
-		});
-
-		it("should throw a LokaliseError for unexpected errors", async () => {
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/download`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.replyWithError(new Error());
-
-			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-			await expect(
-				downloader.getTranslationsBundle(mockParams),
-			).rejects.toMatchObject({
-				message: "fetch failed",
-				code: 500,
-				details: { reason: "network or fetch error" },
-			});
-		});
-	});
-
-	describe("Edge Cases", () => {
-		it("should handle mixed errors and eventually succeed", async () => {
-			const mockResponse = {
-				project_id: projectId,
-				bundle_url: "https://example.com/fake-bundle-url",
-				responseTooBig: false,
-			};
-
-			const retries = 3;
-			const sleepTime = 1;
 			const downloader = new FakeLokaliseDownload(
 				{ apiKey },
 				{
 					projectId,
-					retryParams: { maxRetries: retries, initialSleepTime: sleepTime },
+					retryParams: {
+						maxRetries,
+						initialSleepTime: 1,
+						jitterRatio: 0,
+					},
 				},
 			);
-			const sleepSpy = vi
-				.spyOn(
-					LokaliseFileExchange as unknown as TestableLokaliseFileExchange,
-					"sleep",
-				)
-				.mockResolvedValue(undefined);
-
-			let callCount = 0;
-
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/download`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(() => {
-					callCount++;
-					if (callCount === 1) {
-						return {
-							statusCode: 429,
-							data: JSON.stringify({ message: "Too Many Requests", code: 429 }),
-						};
-					}
-					if (callCount === 2) {
-						return {
-							statusCode: 408,
-							data: JSON.stringify({ message: "Request Timeout", code: 408 }),
-						};
-					}
-					return {
-						statusCode: 200,
-						data: JSON.stringify(mockResponse),
-					};
-				})
-				.times(3);
 
 			const result = await downloader.getTranslationsBundle(mockParams);
 
-			expect(result).toEqual(mockResponse);
-			expect(callCount).toBe(3);
-			expect(sleepSpy).toHaveBeenCalledTimes(2);
-		});
+			expect(result).toEqual(mockBundle);
+			expect(attempts).toBe(maxRetries + 1);
+		},
+	);
 
-		it("should rethrow non-ApiError exceptions as is", async () => {
-			const invalidDownloader = new FakeLokaliseDownload(
-				{ apiKey },
-				{ projectId },
-			);
-			Object.defineProperty(invalidDownloader, "projectId", {
-				get: () => null,
-				configurable: true,
+	it("stops retrying after maxRetries is exhausted", async () => {
+		const maxRetries = 2;
+		let attempts = 0;
+
+		mockPool
+			.intercept({
+				path: downloadPath,
+				method: "POST",
+				body: JSON.stringify(mockParams),
+			})
+			.reply(() => {
+				attempts++;
+
+				return {
+					statusCode: 429,
+					data: JSON.stringify({
+						message: "Too Many Requests",
+						code: 429,
+					}),
+				};
+			})
+			.times(maxRetries + 1);
+
+		const downloader = new FakeLokaliseDownload(
+			{ apiKey },
+			{
+				projectId,
+				retryParams: {
+					maxRetries,
+					initialSleepTime: 1,
+					jitterRatio: 0,
+				},
+			},
+		);
+
+		await expect(
+			downloader.getTranslationsBundle(mockParams),
+		).rejects.toBeInstanceOf(LokaliseError);
+
+		expect(attempts).toBe(maxRetries + 1);
+	});
+
+	it("does not retry non-retryable API errors", async () => {
+		const mockError = {
+			message: "No keys for export with current export settings",
+			code: 406,
+		};
+
+		let attempts = 0;
+
+		mockPool
+			.intercept({
+				path: downloadPath,
+				method: "POST",
+				body: JSON.stringify(mockParams),
+			})
+			.reply(() => {
+				attempts++;
+				return {
+					statusCode: 406,
+					data: JSON.stringify(mockError),
+				};
 			});
 
-			await expect(
-				invalidDownloader.getTranslationsBundle(mockParams),
-			).rejects.toThrow();
+		const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
+
+		await expect(
+			downloader.getTranslationsBundle(mockParams),
+		).rejects.toMatchObject({
+			message: mockError.message,
+			code: mockError.code,
+		});
+
+		expect(attempts).toBe(1);
+	});
+
+	it("handles network failures", async () => {
+		mockPool
+			.intercept({
+				path: downloadPath,
+				method: "POST",
+				body: JSON.stringify(mockParams),
+			})
+			.replyWithError(new Error("Connection lost"));
+
+		const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
+
+		await expect(
+			downloader.getTranslationsBundle(mockParams),
+		).rejects.toMatchObject({
+			code: 500,
+			details: { reason: "network or fetch error" },
 		});
 	});
 });

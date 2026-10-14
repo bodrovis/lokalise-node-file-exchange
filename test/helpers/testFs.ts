@@ -6,37 +6,72 @@ export type TestFsTree = {
 	[name: string]: string | Buffer | TestFsTree;
 };
 
-async function writeTree(root: string, tree: TestFsTree): Promise<void> {
-	await mkdir(root, { recursive: true });
+/**
+ * Resolves a path within the temporary test directory.
+ */
+function resolveInside(root: string, ...parts: string[]): string {
+	const target = path.resolve(root, ...parts);
+	const relative = path.relative(root, target);
+
+	if (
+		relative === ".." ||
+		relative.startsWith(`..${path.sep}`) ||
+		path.isAbsolute(relative)
+	) {
+		throw new Error(`Path is outside the test directory: ${target}`);
+	}
+
+	return target;
+}
+
+/**
+ * Recursively creates directories and files from a tree.
+ */
+async function writeTree(
+	root: string,
+	tree: TestFsTree,
+	parts: string[] = [],
+): Promise<void> {
+	const dir = resolveInside(root, ...parts);
+	await mkdir(dir, { recursive: true });
 
 	for (const [name, value] of Object.entries(tree)) {
-		const target = path.join(root, name);
+		const nextParts = [...parts, name];
+		const target = resolveInside(root, ...nextParts);
 
 		if (typeof value === "string" || Buffer.isBuffer(value)) {
 			await mkdir(path.dirname(target), { recursive: true });
 			await writeFile(target, value);
 		} else {
-			await writeTree(target, value);
+			await writeTree(root, value, nextParts);
 		}
 	}
 }
 
+/**
+ * Creates a temporary filesystem for tests.
+ */
 export async function createTestFs(tree: TestFsTree = {}) {
 	const root = await mkdtemp(
 		path.join(tmpdir(), "lokalise-file-exchange-test-"),
 	);
 
-	await writeTree(root, tree);
+	try {
+		await writeTree(root, tree);
+	} catch (error) {
+		await rm(root, { recursive: true, force: true });
+		throw error;
+	}
 
 	return {
 		root,
 
 		path(...parts: string[]) {
-			return path.join(root, ...parts);
+			return resolveInside(root, ...parts);
 		},
 
 		async write(tree: TestFsTree, ...parts: string[]) {
-			await writeTree(path.join(root, ...parts), tree);
+			await writeTree(root, tree, parts);
 		},
 
 		useAsCwd() {

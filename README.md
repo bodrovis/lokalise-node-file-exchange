@@ -235,7 +235,7 @@ This attribute determines which files are included or excluded from the upload. 
 - `extensions` (`string[]`): File extensions to include. Default: `[".*"]` (all extensions). For example, set to `[".json", ".xml"]` to include only JSON and XML files.
 - `excludePatterns` (`string[] | RegExp[]`): Patterns to exclude. Each item must be a valid regular expression string or a `RegExp` object. Patterns are tested against the full absolute path of each file or directory.
 - `recursive` (`boolean`): Whether to include files from nested directories. Default: `true`.
-- `fileNamePattern` (`string | RegExp`): Pattern for filenames to upload. Default: `*` (all files). For example, set to `"^en.*"` to upload files starting with "en.".
+- `fileNamePattern` (`string | RegExp`): Pattern for filenames to upload. Default: `.*` (all files). For example, set to `"^en.*"` to upload files starting with "en.".
 
 ### ProcessUploadFileParams
 

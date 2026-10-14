@@ -1,16 +1,32 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { QueuedProcess, UploadFileParams } from "@lokalise/node-api";
+import { collectFiles } from "../collectors/file-collector.js";
+import { MAX_CONCURRENT_PROCESSES } from "../constants.js";
 import type {
-	CollectFileParams,
 	FileUploadError,
 	PartialUploadFileParams,
-	ProcessedFile,
 	ProcessUploadFileParams,
 	QueuedUploadProcessesWithErrors,
 	UploadTranslationParams,
 } from "../interfaces/index.js";
+import {
+	pollLokaliseProcesses,
+	validatePollingParams,
+} from "../processes/poll-lokalise-processes.js";
+import { processUploadFile } from "../processors/upload-file.js";
+import { runWithConcurrencyLimit } from "../utils/concurrency.js";
+import { isFinishedStatus } from "../utils/process-status.js";
+import { withExponentialBackoff } from "../utils/retry.js";
 import { LokaliseFileExchange } from "./LokaliseFileExchange.js";
+
+interface ResolvedPollingParams {
+	pollStatuses: boolean;
+	pollInitialWaitTime: number;
+	pollMaximumWaitTime: number;
+}
+
+type UploadOutcome =
+	| { ok: true; process: QueuedProcess }
+	| { ok: false; error: FileUploadError };
 
 /**
  * Handles uploading translation files to Lokalise.
@@ -23,10 +39,12 @@ export class LokaliseUpload extends LokaliseFileExchange {
 	};
 
 	/**
-	 * Collects files, uploads them to Lokalise, and optionally polls for process completion, returning both processes and errors.
+	 * Collects and uploads translation files to Lokalise.
+	 * Optionally polls queued processes and returns their statuses
+	 * along with any upload errors.
 	 *
-	 * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
-	 * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
+	 * @param params - File collection, upload, and processing options.
+	 * @returns Queued processes and upload errors.
 	 */
 	async uploadTranslations({
 		uploadFileParams,
@@ -35,215 +53,56 @@ export class LokaliseUpload extends LokaliseFileExchange {
 	}: UploadTranslationParams = {}): Promise<QueuedUploadProcessesWithErrors> {
 		this.logMsg("debug", "Uploading translations to Lokalise...");
 
-		const { pollStatuses, pollInitialWaitTime, pollMaximumWaitTime } = {
-			...LokaliseUpload.defaultPollingParams,
-			...processUploadFileParams,
-		};
+		const polling = this.resolvePollingParams(processUploadFileParams);
 
-		this.logMsg("debug", "Collecting files to upload...");
-		const collectedFiles = await this.collectFiles(collectFileParams);
-		this.logMsg("debug", "Collected files:", collectedFiles);
+		const files = await collectFiles(collectFileParams, {
+			onWarning: (message, error) => this.logMsg("warn", message, error),
+		});
 
-		this.logMsg("debug", "Performing parallel upload...");
 		const { processes, errors } = await this.parallelUpload(
-			collectedFiles,
+			files,
 			uploadFileParams,
 			processUploadFileParams,
 		);
 
-		let completedProcesses = processes;
-		this.logMsg(
-			"debug",
-			"File uploading queued! IDs:",
-			completedProcesses.map((p) => p.process_id),
-		);
+		const shouldPoll = polling.pollStatuses && processes.length > 0;
 
-		if (pollStatuses) {
-			this.logMsg("debug", "Polling queued processes...");
+		const completedProcesses = shouldPoll
+			? await this.pollUploadedProcesses(
+					processes,
+					polling.pollInitialWaitTime,
+					polling.pollMaximumWaitTime,
+				)
+			: processes;
 
-			completedProcesses = await this.pollProcesses(
-				processes,
-				pollInitialWaitTime,
-				pollMaximumWaitTime,
-			);
-
-			this.logMsg("debug", "Polling completed!");
-		}
-
-		if (errors.length === 0) {
-			this.logMsg("debug", "Upload successful!");
-		} else {
-			this.logMsg("warn", `Upload completed with ${errors.length} error(s).`);
-		}
+		this.logUploadSummary(completedProcesses, errors, shouldPoll);
 
 		return { processes: completedProcesses, errors };
 	}
 
 	/**
-	 * Collects files from the filesystem based on the given parameters.
+	 * Uploads a single file to Lokalise with retry support.
 	 *
-	 * @param {CollectFileParams} collectFileParams - Parameters for file collection, including directories, extensions, and patterns.
-	 * @returns {Promise<string[]>} A promise resolving with the list of collected file paths.
-	 */
-	protected async collectFiles({
-		inputDirs = ["./locales"],
-		extensions = [".*"],
-		excludePatterns = [],
-		recursive = true,
-		fileNamePattern = ".*",
-	}: CollectFileParams = {}): Promise<string[]> {
-		const queue = this.makeQueue(inputDirs);
-		const normalizedExtensions = this.normalizeExtensions(extensions);
-		const fileNameRegex = this.makeFilenameRegexp(fileNamePattern);
-		const excludeRegexes = this.makeExcludeRegExes(excludePatterns);
-
-		const files = await this.processCollectionQueue(
-			queue,
-			normalizedExtensions,
-			fileNameRegex,
-			excludeRegexes,
-			recursive,
-		);
-
-		return files.sort();
-	}
-
-	/**
-	 * Uploads a single file to Lokalise.
-	 *
-	 * @param {UploadFileParams} uploadParams - Parameters for uploading the file.
-	 * @returns {Promise<QueuedProcess>} A promise resolving with the upload process details.
+	 * @param uploadParams - File upload parameters.
+	 * @returns The queued upload process.
 	 */
 	protected async uploadSingleFile(
 		uploadParams: UploadFileParams,
 	): Promise<QueuedProcess> {
-		return this.withExponentialBackoff(() =>
-			this.apiClient.files().upload(this.projectId, uploadParams),
+		return withExponentialBackoff(
+			() => this.apiClient.files().upload(this.projectId, uploadParams),
+			this.retryParams,
+			{
+				onDebug: (message) => this.logMsg("debug", message),
+			},
 		);
 	}
 
 	/**
-	 * Processes a file to prepare it for upload, converting it to base64 and extracting its language code.
+	 * Uploads files concurrently while preserving input order
+	 * in the resulting process and error arrays.
 	 *
-	 * @param file - The absolute path to the file.
-	 * @param projectRoot - The root directory of the project.
-	 * @param processParams - Optional processing settings including inferers.
-	 * @returns A promise resolving with the processed file details, including base64 content, relative path, and language code.
-	 */
-	protected async processFile(
-		file: string,
-		projectRoot: string,
-		processParams?: ProcessUploadFileParams,
-	): Promise<ProcessedFile> {
-		const relativePath = await this.inferRelativePath(
-			file,
-			projectRoot,
-			processParams,
-		);
-
-		const languageCode = await this.inferLanguageCode(
-			file,
-			relativePath,
-			processParams,
-		);
-
-		const base64Content = await this.readFileAsBase64(file);
-
-		return {
-			data: base64Content,
-			filename: relativePath,
-			lang_iso: languageCode,
-		};
-	}
-
-	/**
-	 * Infers the relative path for an uploaded file.
-	 *
-	 * Tries a custom `filenameInferer` first; if it fails or returns empty/whitespace,
-	 * falls back to a POSIX-style relative path based on the project root.
-	 *
-	 * @param file - Absolute path to the source file.
-	 * @param projectRoot - Root directory of the project.
-	 * @param processParams - Optional processing settings including filename inferer.
-	 * @returns A promise resolving with the inferred relative path.
-	 */
-	private async inferRelativePath(
-		file: string,
-		projectRoot: string,
-		processParams?: ProcessUploadFileParams,
-	): Promise<string> {
-		try {
-			const fromInferer = processParams?.filenameInferer
-				? await processParams.filenameInferer(file)
-				: "";
-
-			if (!fromInferer.trim()) {
-				throw new Error("Invalid filename: empty or only whitespace");
-			}
-
-			return fromInferer;
-		} catch {
-			// Fallback: derive a POSIX relative path from project root
-			return path.posix.relative(
-				this.toPosixPath(projectRoot),
-				this.toPosixPath(file),
-			);
-		}
-	}
-
-	/**
-	 * Infers the language code for an uploaded file.
-	 *
-	 * Tries a custom `languageInferer` first; if it fails or returns empty/whitespace,
-	 * falls back to extracting the language code from the filename before the last extension.
-	 *
-	 * Example: "en.default.json" → "default"
-	 *
-	 * @param file - Absolute path to the source file.
-	 * @param relativePath - Effective relative path of the file (used for fallback parsing).
-	 * @param processParams - Optional processing settings including language inferer.
-	 * @returns A promise resolving with the inferred language code.
-	 */
-	private async inferLanguageCode(
-		file: string,
-		relativePath: string,
-		processParams?: ProcessUploadFileParams,
-	): Promise<string> {
-		try {
-			const fromInferer = processParams?.languageInferer
-				? await processParams.languageInferer(file)
-				: "";
-
-			if (!fromInferer.trim()) {
-				throw new Error("Invalid language code: empty or only whitespace");
-			}
-
-			return fromInferer;
-		} catch {
-			// Fallback: derive language code from the basename of the relative path
-			const baseName = path.basename(relativePath);
-			return baseName.split(".").slice(-2, -1)[0] ?? "unknown";
-		}
-	}
-
-	/**
-	 * Reads a file from disk and returns its content encoded as base64.
-	 *
-	 * @param file - Absolute path to the source file.
-	 * @returns A promise resolving with the file content encoded in base64.
-	 */
-	private async readFileAsBase64(file: string): Promise<string> {
-		const fileContent = await fs.promises.readFile(file);
-		return fileContent.toString("base64");
-	}
-
-	/**
-	 * Uploads files in parallel with a limit on the number of concurrent uploads.
-	 *
-	 * @param {string[]} files - List of file paths to upload.
-	 * @param {Partial<UploadFileParams>} baseUploadFileParams - Base parameters for uploads.
-	 * @param {ProcessUploadFileParams} [processParams] - Optional processing settings including inferers.
-	 * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
+	 * Individual file failures do not stop other uploads.
 	 */
 	private async parallelUpload(
 		files: string[],
@@ -251,263 +110,122 @@ export class LokaliseUpload extends LokaliseFileExchange {
 		processParams?: ProcessUploadFileParams,
 	): Promise<QueuedUploadProcessesWithErrors> {
 		const projectRoot = process.cwd();
-		const queuedProcesses: QueuedProcess[] = [];
-		const errors: FileUploadError[] = [];
 
-		await this.runWithConcurrencyLimit(
+		const results = await runWithConcurrencyLimit(
 			files,
-			LokaliseUpload.maxConcurrentProcesses,
-			async (file) => {
+			MAX_CONCURRENT_PROCESSES,
+			async (file): Promise<UploadOutcome> => {
 				try {
-					const processedFileParams = await this.processFile(
+					const processed = await processUploadFile(
 						file,
 						projectRoot,
 						processParams,
 					);
-					const queued = await this.uploadSingleFile({
+
+					const process = await this.uploadSingleFile({
 						...baseUploadFileParams,
-						...processedFileParams,
+						...processed,
 					});
-					queuedProcesses.push(queued);
+
+					return { ok: true, process };
 				} catch (error) {
-					errors.push({ file, error });
+					return { ok: false, error: { file, error } };
 				}
 			},
 		);
 
-		return { processes: queuedProcesses, errors };
-	}
+		const processes: QueuedProcess[] = [];
+		const errors: FileUploadError[] = [];
 
-	/**
-	 * Normalizes an array of file extensions by ensuring each starts with a dot and is lowercase.
-	 *
-	 * @param extensions - The list of file extensions to normalize.
-	 * @returns A new array with normalized file extensions.
-	 */
-	private normalizeExtensions(extensions: string[]): string[] {
-		return extensions.map((ext) =>
-			(ext.startsWith(".") ? ext : `.${ext}`).toLowerCase(),
-		);
-	}
-
-	/**
-	 * Determines whether a file should be collected based on its extension and name pattern.
-	 *
-	 * @param entry - The directory entry to evaluate.
-	 * @param normalizedExtensions - List of allowed file extensions.
-	 * @param fileNameRegex - Regular expression to match valid filenames.
-	 * @returns `true` if the file matches both extension and name pattern, otherwise `false`.
-	 */
-	private shouldCollectFile(
-		entry: fs.Dirent,
-		normalizedExtensions: string[],
-		fileNameRegex: RegExp,
-	): boolean {
-		const fileExt = path.extname(entry.name).toLowerCase();
-		const matchesExtension =
-			normalizedExtensions.includes(".*") ||
-			normalizedExtensions.includes(fileExt);
-		const matchesFilenamePattern = this.testRegex(fileNameRegex, entry.name);
-
-		return matchesExtension && matchesFilenamePattern;
-	}
-
-	/**
-	 * Creates a regular expression from a given pattern string or RegExp.
-	 *
-	 * @param fileNamePattern - The filename pattern to convert into a RegExp.
-	 * @returns A valid RegExp object.
-	 * @throws {Error} If the pattern string is invalid and cannot be compiled.
-	 */
-	private makeFilenameRegexp(fileNamePattern: string | RegExp): RegExp {
-		try {
-			return new RegExp(fileNamePattern);
-		} catch {
-			throw new Error(`Invalid fileNamePattern: ${fileNamePattern}`);
-		}
-	}
-
-	/**
-	 * Converts an array of exclude patterns into an array of RegExp objects.
-	 *
-	 * @param excludePatterns - An array of strings or regular expressions to exclude.
-	 * @returns An array of compiled RegExp objects.
-	 * @throws {Error} If any pattern is invalid and cannot be compiled.
-	 */
-	private makeExcludeRegExes(excludePatterns: string[] | RegExp[]): RegExp[] {
-		if (excludePatterns.length === 0) {
-			return [];
-		}
-		try {
-			return excludePatterns.map((pattern) => new RegExp(pattern));
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			throw new Error(`Invalid excludePatterns: ${msg}`);
-		}
-	}
-
-	/**
-	 * Safely reads the contents of a directory, returning an empty array if access fails.
-	 *
-	 * Logs a warning if the directory cannot be read (e.g. due to permissions or non-existence).
-	 *
-	 * @param dir - The directory path to read.
-	 * @returns A promise that resolves to an array of directory entries, or an empty array on failure.
-	 */
-	private async safeReadDir(dir: string): Promise<fs.Dirent[]> {
-		try {
-			return await fs.promises.readdir(dir, { withFileTypes: true });
-		} catch {
-			this.logMsg("warn", `Skipping inaccessible directory: ${dir}...`);
-			return [];
-		}
-	}
-
-	/**
-	 * Checks if a file path matches any of the provided exclusion patterns.
-	 *
-	 * @param filePath - The path of the file to check.
-	 * @param excludeRegexes - An array of RegExp patterns to test against.
-	 * @returns `true` if the file path matches any exclude pattern, otherwise `false`.
-	 */
-	private shouldExclude(filePath: string, rx: RegExp[]): boolean {
-		const posix = this.toPosixPath(filePath);
-
-		return rx.some(
-			(r) => this.testRegex(r, filePath) || this.testRegex(r, posix),
-		);
-	}
-
-	/**
-	 * Creates a queue of absolute paths from the provided input directories.
-	 *
-	 * @param inputDirs - An array of input directory paths (relative or absolute).
-	 * @returns An array of resolved absolute directory paths.
-	 */
-	private makeQueue(inputDirs: string[]): string[] {
-		return [...inputDirs.map((dir) => path.resolve(dir))];
-	}
-
-	/**
-	 * Processes a queue of directories to collect files matching given criteria.
-	 *
-	 * Recursively reads directories (if enabled), filters files by extension,
-	 * filename pattern, and exclusion rules, and collects matching file paths.
-	 *
-	 * @param queue - The list of directories to process.
-	 * @param exts - Allowed file extensions (normalized).
-	 * @param nameRx - Regular expression to match valid filenames.
-	 * @param excludeRx - Array of exclusion patterns.
-	 * @param recursive - Whether to traverse subdirectories.
-	 * @returns A promise that resolves to an array of matched file paths.
-	 */
-	private async processCollectionQueue(
-		queue: string[],
-		exts: string[],
-		nameRx: RegExp,
-		excludeRx: RegExp[],
-		recursive: boolean,
-	): Promise<string[]> {
-		const found: string[] = [];
-
-		while (queue.length) {
-			const dir = queue.shift();
-
-			// Realistically, this should never happen:
-			/* v8 ignore start */
-			if (!dir) {
-				this.logMsg(
-					"debug",
-					`collectFiles: received falsy dir entry (${String(dir)}). This is unexpected and might indicate a bug.`,
-				);
-				continue;
-			}
-			/* v8 ignore stop */
-
-			const entries = await this.safeReadDir(dir);
-			for (const entry of entries) {
-				const fullPath = path.resolve(dir, entry.name);
-				this.handleEntry(entry, fullPath, queue, found, {
-					exts,
-					nameRx,
-					excludeRx,
-					recursive,
-				});
+		for (const result of results) {
+			if (result.ok) {
+				processes.push(result.process);
+			} else {
+				errors.push(result.error);
 			}
 		}
-		return found;
+
+		return { processes, errors };
+	}
+
+	private async pollUploadedProcesses(
+		processes: QueuedProcess[],
+		initialWaitTime: number,
+		maxWaitTime: number,
+	): Promise<QueuedProcess[]> {
+		return pollLokaliseProcesses({
+			processes,
+			apiClient: this.apiClient,
+			projectId: this.projectId,
+			initialWaitTime,
+			maxWaitTime,
+			onDebug: (message) => this.logMsg("debug", message),
+			onWarning: (id, error) =>
+				this.logMsg("warn", `Failed to fetch process ${id}:`, error),
+		});
 	}
 
 	/**
-	 * Handles a single directory entry during file collection.
+	 * Resolves polling options and validates enabled polling settings.
 	 *
-	 * Applies exclusion rules, optionally queues directories for recursion,
-	 * and collects files that match the specified extension and filename pattern.
-	 *
-	 * @param entry - The directory entry to handle.
-	 * @param fullPath - The absolute path to the entry.
-	 * @param queue - The processing queue for directories.
-	 * @param found - The list to store matched file paths.
-	 * @param opts - Options including extensions, name pattern, exclusions, and recursion flag.
+	 * @param params - Optional polling configuration.
+	 * @returns Polling configuration with all defaults applied.
 	 */
-	private handleEntry(
-		entry: fs.Dirent,
-		fullPath: string,
-		queue: string[],
-		found: string[],
-		opts: {
-			exts: string[];
-			nameRx: RegExp;
-			excludeRx: RegExp[];
-			recursive: boolean;
-		},
+	private resolvePollingParams(
+		params?: ProcessUploadFileParams,
+	): ResolvedPollingParams {
+		const defaults = LokaliseUpload.defaultPollingParams;
+
+		const resolved = {
+			pollStatuses: params?.pollStatuses ?? defaults.pollStatuses,
+			pollInitialWaitTime:
+				params?.pollInitialWaitTime ?? defaults.pollInitialWaitTime,
+			pollMaximumWaitTime:
+				params?.pollMaximumWaitTime ?? defaults.pollMaximumWaitTime,
+		};
+
+		if (resolved.pollStatuses) {
+			validatePollingParams({
+				initialWaitTime: resolved.pollInitialWaitTime,
+				maxWaitTime: resolved.pollMaximumWaitTime,
+			});
+		}
+
+		return resolved;
+	}
+
+	/**
+	 * Logs upload results and, if polling was performed,
+	 * summarizes the latest process statuses.
+	 *
+	 * @param processes - Queued processes with their latest states.
+	 * @param errors - Errors encountered while uploading files.
+	 * @param wasPolled - Whether process polling was performed.
+	 */
+	private logUploadSummary(
+		processes: QueuedProcess[],
+		errors: FileUploadError[],
+		wasPolled: boolean,
 	): void {
-		if (this.shouldExclude(fullPath, opts.excludeRx)) {
-			return;
+		this.logMsg("debug", `Upload processes received: ${processes.length}.`);
+
+		if (errors.length > 0) {
+			this.logMsg("warn", `Upload completed with ${errors.length} error(s).`);
 		}
 
-		if (entry.isDirectory()) {
-			if (opts.recursive) {
-				queue.push(fullPath);
-			}
-			return;
-		}
+		if (!wasPolled) return;
 
-		if (
-			entry.isFile() &&
-			this.shouldCollectFile(entry, opts.exts, opts.nameRx)
-		) {
-			found.push(fullPath);
-		}
-	}
+		const failedCount = processes.filter(
+			(p) => p.status === "failed" || p.status === "cancelled",
+		).length;
 
-	/**
-	 * Normalizes a filesystem path to POSIX format.
-	 *
-	 * Replaces platform-specific separators (e.g. `\` on Windows)
-	 * with POSIX-style `/` to ensure consistent path handling
-	 * across different operating systems.
-	 *
-	 * @param p - Original filesystem path.
-	 * @returns The same path but with POSIX separators.
-	 */
-	private toPosixPath(p: string): string {
-		return p.split(path.sep).join(path.posix.sep);
-	}
+		const pendingCount = processes.filter(
+			(p) => !isFinishedStatus(p.status),
+		).length;
 
-	/**
-	 * Tests a value against a regular expression without retaining state between calls.
-	 *
-	 * Global (`g`) and sticky (`y`) regular expressions mutate `lastIndex` when
-	 * `test()` is called, which can cause repeated checks to produce inconsistent results.
-	 * Resetting `lastIndex` ensures each value is tested independently.
-	 *
-	 * @param regex - The regular expression to test.
-	 * @param value - The string value to test against the regular expression.
-	 * @returns `true` if the value matches the regular expression, otherwise `false`.
-	 */
-	private testRegex(regex: RegExp, value: string): boolean {
-		regex.lastIndex = 0;
-		return regex.test(value);
+		this.logMsg(
+			"debug",
+			`Polling stopped. Failed/cancelled: ${failedCount}, pending: ${pendingCount}.`,
+		);
 	}
 }

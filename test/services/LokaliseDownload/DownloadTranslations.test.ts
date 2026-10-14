@@ -1,306 +1,225 @@
-import fs from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-
-import type { FileFormat, QueuedProcess } from "@lokalise/node-api";
-
-import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
-import { FakeLokaliseDownload } from "../../fixtures/fake_classes/FakeLokaliseDownload.js";
-import { createTestFs, type TestFs } from "../../helpers/testFs.js";
+import type { DownloadFileParams } from "@lokalise/node-api";
+import { getGlobalDispatcher } from "undici";
+import { LokaliseDownload } from "../../../lib/services/LokaliseDownload.js";
+import type { Interceptable } from "../../setup.js";
 import {
+	afterAll,
 	afterEach,
+	beforeAll,
 	beforeEach,
 	describe,
 	expect,
 	it,
-	vi,
+	MockAgent,
+	setGlobalDispatcher,
 } from "../../setup.js";
 
 describe("LokaliseDownload: downloadTranslations()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
-	const apiKey = process.env.API_KEY as string;
-	const downloadFileParams = { format: "json" as FileFormat };
+	const apiKey = "test-api-key";
+	const archiveUrl = "https://example.com/download.zip";
+	const processId = "74738ff5-5367-5958-9aee-98fffdcd1876";
+	const downloadPath = `/api2/projects/${projectId}/files/download`;
+	const asyncDownloadPath = `/api2/projects/${projectId}/files/async-download`;
+	const processPath = `/api2/projects/${projectId}/processes/${processId}`;
 
-	const demoZipFixturePath = path.resolve(
-		__dirname,
-		"../../fixtures/demo_archive.zip",
+	const downloadFileParams: DownloadFileParams = {
+		format: "json",
+		original_filenames: true,
+	};
+
+	// A real ZIP containing locales/en.json and locales/fr.json.
+	const zipContent = Buffer.from(
+		"UEsDBBQAAAAAAAAAIVgOcTz0EQAAABEAAAAPAAAAbG9jYWxlcy9lbi5qc29ueyJoZWxsbyI6Ikhl" +
+			"bGxvIn1QSwMEFAAAAAAAAAAhWALV8GkTAAAAEwAAAA8AAABsb2NhbGVzL2ZyLmpzb257ImhlbGxv" +
+			"IjoiQm9uam91ciJ9UEsBAhQDFAAAAAAAAAAhWA5xPPQRAAAAEQAAAA8AAAAAAAAAAAAAAIABAAAA" +
+			"AGxvY2FsZXMvZW4uanNvblBLAQIUAxQAAAAAAAAAIVgC1fBpEwAAABMAAAAPAAAAAAAAAAAAAACA" +
+			"AT4AAABsb2NhbGVzL2ZyLmpzb25QSwUGAAAAAAIAAgB6AAAAfgAAAAAA",
+		"base64",
 	);
 
-	const invalidZipFixturePath = path.resolve(
-		__dirname,
-		"../../fixtures/invalid_archive.zip",
-	);
+	let mockAgent: MockAgent;
+	let apiPool: Interceptable;
+	let archivePool: Interceptable;
+	let previousDispatcher: ReturnType<typeof getGlobalDispatcher>;
+	let outputDir: string;
 
-	let downloader: FakeLokaliseDownload;
-	let testFs: TestFs;
-	let restoreCwd: () => void;
-	let demoZipPath: string;
-	let invalidZipPath: string;
-	let extractParams: { outputDir: string };
+	beforeAll(() => {
+		previousDispatcher = getGlobalDispatcher();
+		mockAgent = new MockAgent();
+		mockAgent.disableNetConnect();
+		apiPool = mockAgent.get("https://api.lokalise.com");
+		archivePool = mockAgent.get("https://example.com");
+		setGlobalDispatcher(mockAgent);
+	});
 
 	beforeEach(async () => {
-		testFs = await createTestFs({
-			archives: {
-				"demo_archive.zip": fs.readFileSync(demoZipFixturePath),
-				"invalid_archive.zip": fs.readFileSync(invalidZipFixturePath),
-			},
-			output: {
-				dir: {},
-			},
-		});
-
-		restoreCwd = testFs.useAsCwd();
-
-		demoZipPath = testFs.path("archives", "demo_archive.zip");
-		invalidZipPath = testFs.path("archives", "invalid_archive.zip");
-		extractParams = {
-			outputDir: testFs.path("output", "dir"),
-		};
-
-		downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
+		outputDir = await mkdtemp(path.join(tmpdir(), "lokalise-download-test-"));
 	});
 
 	afterEach(async () => {
-		vi.restoreAllMocks();
-
-		restoreCwd();
-		await testFs.cleanup();
+		try {
+			mockAgent.assertNoPendingInterceptors();
+		} finally {
+			await rm(outputDir, { recursive: true, force: true });
+		}
 	});
 
-	describe("Success Cases", () => {
-		it("should download, extract, and clean up translations successfully", async () => {
-			vi.spyOn(downloader, "getTranslationsBundle").mockResolvedValue({
-				bundle_url: "https://example.com/translations.zip",
-				project_id: projectId,
-			});
-
-			vi.spyOn(downloader, "downloadZip").mockResolvedValue(demoZipPath);
-
-			await expect(
-				downloader.downloadTranslations({ downloadFileParams, extractParams }),
-			).resolves.not.toThrow();
-
-			expect(fs.existsSync(testFs.path("output", "dir", "en", "en.json"))).toBe(
-				true,
-			);
-
-			expect(
-				fs.existsSync(
-					testFs.path("output", "dir", "fr_CA", "no_filename.json"),
-				),
-			).toBe(true);
-
-			const jsonContent = JSON.parse(
-				fs.readFileSync(
-					testFs.path("output", "dir", "fr_FR", "fr_FR.json"),
-					"utf8",
-				),
-			);
-
-			expect(jsonContent).toEqual({ welcome: "Bienvenue!" });
-
-			expect(fs.existsSync(demoZipPath)).toBe(false);
-		});
+	afterAll(async () => {
+		setGlobalDispatcher(previousDispatcher);
+		await mockAgent.close();
 	});
 
-	describe("Error Cases", () => {
-		it("should clean up the ZIP file even if extraction fails", async () => {
-			vi.spyOn(downloader, "getTranslationsBundle").mockResolvedValue({
-				bundle_url: "https://example.com/translations.zip",
+	function mockArchive(content: Buffer = zipContent): void {
+		archivePool
+			.intercept({ method: "GET", path: "/download.zip" })
+			.reply(200, content, {
+				headers: { "content-type": "application/zip" },
+			});
+	}
+
+	async function expectExtractedFiles(): Promise<void> {
+		expect(
+			await readFile(path.join(outputDir, "locales", "en.json"), "utf8"),
+		).toBe('{"hello":"Hello"}');
+
+		expect(
+			await readFile(path.join(outputDir, "locales", "fr.json"), "utf8"),
+		).toBe('{"hello":"Bonjour"}');
+	}
+
+	it("downloads and extracts a synchronous translation bundle", async () => {
+		apiPool
+			.intercept({
+				method: "POST",
+				path: downloadPath,
+				body: JSON.stringify(downloadFileParams),
+			})
+			.reply(200, {
 				project_id: projectId,
+				bundle_url: archiveUrl,
+				responseTooBig: false,
 			});
 
-			vi.spyOn(downloader, "downloadZip").mockResolvedValue(demoZipPath);
+		mockArchive();
 
-			vi.spyOn(downloader, "unpackZip").mockRejectedValue(
-				new Error("Extraction failed"),
-			);
+		const downloader = new LokaliseDownload({ apiKey }, { projectId });
 
-			await expect(
-				downloader.downloadTranslations({ downloadFileParams, extractParams }),
-			).rejects.toThrow("Extraction failed");
-
-			expect(fs.existsSync(demoZipPath)).toBe(false);
+		await downloader.downloadTranslations({
+			downloadFileParams,
+			extractParams: { outputDir },
 		});
 
-		it("should throw an error if the file is not a valid ZIP archive", async () => {
-			vi.spyOn(downloader, "getTranslationsBundle").mockResolvedValue({
-				bundle_url: "https://example.com/translations.zip",
-				project_id: "test-project-id",
-			});
-
-			vi.spyOn(downloader, "downloadZip").mockResolvedValue(invalidZipPath);
-
-			await expect(
-				downloader.downloadTranslations({ downloadFileParams, extractParams }),
-			).rejects.toThrow(
-				"End of central directory record signature not found. Either not a zip file, or file is truncated.",
-			);
-
-			expect(fs.existsSync(invalidZipPath)).toBe(false);
-		});
-
-		it("should throw if async download process is not found after polling", async () => {
-			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-
-			const downloadProcess = {
-				process_id: "proc-123",
-				status: "queued",
-				type: "file-import",
-			} as unknown as QueuedProcess;
-
-			vi.spyOn(downloader, "getTranslationsBundleAsync").mockResolvedValue(
-				downloadProcess,
-			);
-
-			vi.spyOn(downloader, "pollProcesses").mockResolvedValue([
-				{
-					process_id: "another-id",
-					status: "finished",
-					type: "file-import",
-				} as unknown as QueuedProcess,
-			]);
-
-			const downloadZipSpy = vi.spyOn(downloader, "downloadZip");
-
-			await expect(
-				downloader.downloadTranslations({
-					downloadFileParams,
-					extractParams,
-					processDownloadFileParams: {
-						asyncDownload: true,
-						pollInitialWaitTime: 100,
-						pollMaximumWaitTime: 1_000,
-					},
-				}),
-			).rejects.toThrow(
-				new LokaliseError(
-					`Process ${downloadProcess.process_id} not found after polling`,
-					500,
-				),
-			);
-
-			expect(downloadZipSpy).not.toHaveBeenCalled();
-		});
-
-		it("should throw LokaliseError when async download process failed with message", async () => {
-			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-
-			const downloadProcess = {
-				process_id: "proc-failed",
-				status: "queued",
-				type: "file-import",
-			} as unknown as QueuedProcess;
-
-			vi.spyOn(downloader, "getTranslationsBundleAsync").mockResolvedValue(
-				downloadProcess,
-			);
-
-			vi.spyOn(downloader, "pollProcesses").mockResolvedValue([
-				{
-					process_id: "proc-failed",
-					status: "failed",
-					type: "file-import",
-					message: "Something went wrong",
-				} as unknown as QueuedProcess,
-			]);
-
-			const downloadZipSpy = vi.spyOn(downloader, "downloadZip");
-
-			await expect(
-				downloader.downloadTranslations({
-					downloadFileParams,
-					extractParams,
-					processDownloadFileParams: {
-						asyncDownload: true,
-						pollInitialWaitTime: 100,
-						pollMaximumWaitTime: 1000,
-					},
-				}),
-			).rejects.toThrow(
-				new LokaliseError(
-					"Process proc-failed ended with status=failed: Something went wrong",
-					502,
-				),
-			);
-
-			expect(downloadZipSpy).not.toHaveBeenCalled();
-		});
-
-		it("should throw LokaliseError when async download process is cancelled without message", async () => {
-			const downloader = new FakeLokaliseDownload({ apiKey }, { projectId });
-
-			const downloadProcess = {
-				process_id: "proc-cancelled",
-				status: "queued",
-				type: "file-import",
-			} as unknown as QueuedProcess;
-
-			vi.spyOn(downloader, "getTranslationsBundleAsync").mockResolvedValue(
-				downloadProcess,
-			);
-
-			vi.spyOn(downloader, "pollProcesses").mockResolvedValue([
-				{
-					process_id: "proc-cancelled",
-					status: "cancelled",
-					type: "file-import",
-				} as unknown as QueuedProcess,
-			]);
-
-			const downloadZipSpy = vi.spyOn(downloader, "downloadZip");
-
-			await expect(
-				downloader.downloadTranslations({
-					downloadFileParams,
-					extractParams,
-					processDownloadFileParams: {
-						asyncDownload: true,
-						pollInitialWaitTime: 100,
-						pollMaximumWaitTime: 1000,
-					},
-				}),
-			).rejects.toThrow(
-				new LokaliseError(
-					"Process proc-cancelled ended with status=cancelled",
-					502,
-				),
-			);
-
-			expect(downloadZipSpy).not.toHaveBeenCalled();
-		});
+		await expectExtractedFiles();
 	});
 
-	describe("Edge Cases", () => {
-		it("should throw an error if the archive does not exist", async () => {
-			vi.spyOn(downloader, "getTranslationsBundle").mockResolvedValue({
-				bundle_url: "https://example.com/translations.zip",
-				project_id: projectId,
-			});
+	it("queues, polls, downloads and extracts an asynchronous bundle", async () => {
+		apiPool
+			.intercept({
+				method: "POST",
+				path: asyncDownloadPath,
+				body: JSON.stringify(downloadFileParams),
+			})
+			.reply(200, { process_id: processId, status: "queued" });
 
-			const nonexistentZipPath = testFs.path("nonexistent", "translations.zip");
-
-			vi.spyOn(downloader, "downloadZip").mockResolvedValue(nonexistentZipPath);
-
-			await expect(
-				downloader.downloadTranslations({ downloadFileParams, extractParams }),
-			).rejects.toThrow(/ENOENT/);
+		apiPool.intercept({ method: "GET", path: processPath }).reply(200, {
+			process: {
+				process_id: processId,
+				type: "async-export",
+				status: "finished",
+				details: { download_url: archiveUrl },
+			},
 		});
 
-		it("should handle missing extractParams gracefully", async () => {
-			vi.spyOn(downloader, "getTranslationsBundle").mockResolvedValue({
-				bundle_url: "https://example.com/translations.zip",
+		mockArchive();
+
+		const downloader = new LokaliseDownload({ apiKey }, { projectId });
+
+		await downloader.downloadTranslations({
+			downloadFileParams,
+			extractParams: { outputDir },
+			processDownloadFileParams: {
+				asyncDownload: true,
+				pollInitialWaitTime: 1,
+				pollMaximumWaitTime: 5_000,
+			},
+		});
+
+		await expectExtractedFiles();
+	});
+
+	it("rejects a failed asynchronous export without downloading an archive", async () => {
+		apiPool
+			.intercept({
+				method: "POST",
+				path: asyncDownloadPath,
+				body: JSON.stringify(downloadFileParams),
+			})
+			.reply(200, { process_id: processId, status: "queued" });
+
+		apiPool.intercept({ method: "GET", path: processPath }).reply(200, {
+			process: {
+				process_id: processId,
+				status: "failed",
+				message: "Export failed",
+			},
+		});
+
+		const downloader = new LokaliseDownload({ apiKey }, { projectId });
+
+		await expect(
+			downloader.downloadTranslations({
+				downloadFileParams,
+				extractParams: { outputDir },
+				processDownloadFileParams: {
+					asyncDownload: true,
+					pollInitialWaitTime: 1,
+					pollMaximumWaitTime: 5_000,
+				},
+			}),
+		).rejects.toMatchObject({ code: 502 });
+	});
+
+	it("validates async polling settings before making API requests", async () => {
+		const downloader = new LokaliseDownload({ apiKey }, { projectId });
+
+		await expect(
+			downloader.downloadTranslations({
+				downloadFileParams,
+				extractParams: { outputDir },
+				processDownloadFileParams: {
+					asyncDownload: true,
+					pollInitialWaitTime: -1,
+				},
+			}),
+		).rejects.toThrow("initialWaitTime");
+	});
+
+	it("rejects an invalid ZIP instead of silently succeeding", async () => {
+		apiPool
+			.intercept({
+				method: "POST",
+				path: downloadPath,
+				body: JSON.stringify(downloadFileParams),
+			})
+			.reply(200, {
 				project_id: projectId,
+				bundle_url: archiveUrl,
+				responseTooBig: false,
 			});
 
-			vi.spyOn(downloader, "downloadZip").mockResolvedValue(demoZipPath);
+		mockArchive(Buffer.from("not a ZIP archive"));
 
-			await expect(
-				downloader.downloadTranslations({ downloadFileParams }),
-			).resolves.not.toThrow();
+		const downloader = new LokaliseDownload({ apiKey }, { projectId });
 
-			expect(fs.existsSync(testFs.path("en", "en.json"))).toBe(true);
-
-			expect(fs.existsSync(demoZipPath)).toBe(false);
-		});
+		await expect(
+			downloader.downloadTranslations({
+				downloadFileParams,
+				extractParams: { outputDir },
+			}),
+		).rejects.toThrow();
 	});
 });

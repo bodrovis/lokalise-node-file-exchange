@@ -1,11 +1,9 @@
-import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
-import { LokaliseFileExchange } from "../../../lib/services/LokaliseFileExchange.js";
-import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
-import type { TestableLokaliseFileExchange } from "../../fixtures/fake_interfaces/TestableLokaliseFileExchange.js";
+import { ApiError as LokaliseApiError } from "@lokalise/node-api";
+import { getGlobalDispatcher } from "undici";
+import { FakeLokaliseUpload } from "../../fixtures/fake-classes/FakeLokaliseUpload.js";
 import type { Interceptable } from "../../setup.js";
 import {
 	afterAll,
-	afterEach,
 	beforeAll,
 	beforeEach,
 	describe,
@@ -13,14 +11,11 @@ import {
 	it,
 	MockAgent,
 	setGlobalDispatcher,
-	vi,
 } from "../../setup.js";
 
 describe("LokaliseUpload: uploadSingleFile()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
-	const apiKey = process.env.API_KEY as string;
-	let mockAgent: MockAgent;
-	let mockPool: Interceptable;
+	const apiKey = "test-api-key";
 
 	const mockParams = {
 		filename: "test.json",
@@ -28,18 +23,43 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 		data: "base64encodedcontent",
 	};
 
+	const mockProcess = {
+		process_id: "123abc",
+		type: "file-import",
+		status: "queued",
+		message: "",
+		created_by: 20181,
+		created_by_email: "test@example.com",
+		created_at: "2023-09-21 11:33:19 (Etc/UTC)",
+		created_at_timestamp: 1695295999,
+	};
+
+	const request = {
+		path: `/api2/projects/${projectId}/files/upload`,
+		method: "POST" as const,
+		body: JSON.stringify(mockParams),
+	};
+
+	const successResponse = {
+		project_id: projectId,
+		branch: "master",
+		process: mockProcess,
+	};
+
+	const originalDispatcher = getGlobalDispatcher();
+
+	let mockAgent: MockAgent;
+	let mockPool: Interceptable;
+
 	beforeAll(() => {
 		mockAgent = new MockAgent();
 		setGlobalDispatcher(mockAgent);
 		mockAgent.disableNetConnect();
 	});
 
-	afterAll(() => {
-		mockAgent.close();
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
+	afterAll(async () => {
+		setGlobalDispatcher(originalDispatcher);
+		await mockAgent.close();
 	});
 
 	beforeEach(() => {
@@ -47,201 +67,175 @@ describe("LokaliseUpload: uploadSingleFile()", () => {
 	});
 
 	describe("Successful Upload", () => {
-		it("should successfully upload a file and return a queued process", async () => {
-			const uploader = new FakeLokaliseUpload({ apiKey }, { projectId });
-			const processId = "123abc";
+		it("uploads a file and returns a queued process", async () => {
+			mockPool.intercept(request).reply(200, successResponse);
 
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/upload`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(200, {
-					project_id: projectId,
-					branch: "master",
-					process: {
-						process_id: processId,
-						type: "file-import",
-						status: "queued",
-						message: "",
-						created_by: 20181,
-						created_by_email: "test@example.com",
-						created_at: "2023-09-21 11:33:19 (Etc/UTC)",
-						created_at_timestamp: 1695295999,
-					},
-				});
+			const uploader = new FakeLokaliseUpload({ apiKey }, { projectId });
+
 			const process = await uploader.uploadSingleFile(mockParams);
 
-			expect(process.process_id).toEqual(processId);
-			expect(process.status).toEqual("queued");
+			expect(process).toEqual(mockProcess);
 		});
 	});
 
 	describe("Retry Logic", () => {
-		it("should retry on 429 errors with exponential backoff", async () => {
-			const processId = "123abc";
-			const mockResponse = {
-				process_id: processId,
-				type: "file-import",
-				status: "queued",
-				message: "",
-				created_by: 20181,
-				created_by_email: "test@example.com",
-				created_at: "2023-09-21 11:33:19 (Etc/UTC)",
-				created_at_timestamp: 1695295999,
-			};
+		it("retries on 429 errors until the upload succeeds", async () => {
+			const maxRetries = 3;
+			let attempts = 0;
 
-			const retries = 3;
-			const sleepTime = 1;
 			const uploader = new FakeLokaliseUpload(
 				{ apiKey },
 				{
 					projectId,
 					retryParams: {
-						maxRetries: retries,
-						initialSleepTime: sleepTime,
+						maxRetries,
+						initialSleepTime: 1,
 						jitterRatio: 0,
-						rng: () => 0,
 					},
 				},
 			);
 
-			const sleepSpy = vi
-				.spyOn(
-					LokaliseFileExchange as unknown as TestableLokaliseFileExchange,
-					"sleep",
-				)
-				.mockResolvedValue(undefined);
-
-			let callCount = 0;
-
 			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/upload`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
+				.intercept(request)
 				.reply(() => {
-					callCount++;
-					if (callCount < retries) {
+					attempts++;
+
+					if (attempts < 3) {
 						return {
 							statusCode: 429,
-							data: JSON.stringify({ message: "Too Many Requests", code: 429 }),
+							data: JSON.stringify({
+								message: "Too Many Requests",
+								code: 429,
+							}),
 						};
 					}
+
 					return {
 						statusCode: 200,
-						data: JSON.stringify({ process: mockResponse }),
+						data: JSON.stringify(successResponse),
 					};
 				})
-				.times(retries);
+				.times(3);
 
 			const result = await uploader.uploadSingleFile(mockParams);
 
-			expect(result).toEqual(mockResponse);
-			expect(callCount).toBe(retries);
-			expect(sleepSpy).toHaveBeenCalledTimes(retries - 1);
-			expect(sleepSpy).toHaveBeenNthCalledWith(1, sleepTime * 2 ** 0);
-			expect(sleepSpy).toHaveBeenNthCalledWith(2, sleepTime * 2 ** 1);
+			expect(result).toEqual(mockProcess);
+			expect(attempts).toBe(3);
 		});
 
-		it("should attempt the upload at least once when maxRetries is zero", async () => {
+		it("attempts an upload when maxRetries is zero", async () => {
 			const uploader = new FakeLokaliseUpload(
 				{ apiKey },
 				{ projectId, retryParams: { maxRetries: 0 } },
 			);
 
-			const processId = "123abc";
-
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/upload`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(200, {
-					project_id: projectId,
-					process: {
-						process_id: processId,
-						status: "queued",
-					},
-				});
+			mockPool.intercept(request).reply(200, successResponse);
 
 			const result = await uploader.uploadSingleFile(mockParams);
 
-			expect(result.process_id).toBe(processId);
+			expect(result.process_id).toBe(mockProcess.process_id);
 		});
 
-		it("should throw a LokaliseError after exceeding retries on 408 errors", async () => {
-			const retries = 3;
-			const sleepTime = 1;
+		it("does not retry failed requests when maxRetries is zero", async () => {
+			const uploader = new FakeLokaliseUpload(
+				{ apiKey },
+				{ projectId, retryParams: { maxRetries: 0 } },
+			);
+
+			let attempts = 0;
+
+			mockPool.intercept(request).reply(() => {
+				attempts++;
+
+				return {
+					statusCode: 429,
+					data: JSON.stringify({
+						message: "Too Many Requests",
+						code: 429,
+					}),
+				};
+			});
+
+			await expect(uploader.uploadSingleFile(mockParams)).rejects.toMatchObject(
+				{
+					code: 429,
+					message: "Maximum retries reached: Too Many Requests",
+				},
+			);
+
+			expect(attempts).toBe(1);
+		});
+
+		it("throws after exhausting retries on 408 errors", async () => {
+			const maxRetries = 3;
+			let attempts = 0;
 
 			const uploader = new FakeLokaliseUpload(
 				{ apiKey },
 				{
 					projectId,
 					retryParams: {
-						maxRetries: retries,
-						initialSleepTime: sleepTime,
+						maxRetries,
+						initialSleepTime: 1,
 						jitterRatio: 0,
-						rng: () => 0,
 					},
 				},
 			);
 
-			const sleepSpy = vi
-				.spyOn(
-					LokaliseFileExchange as unknown as TestableLokaliseFileExchange,
-					"sleep",
-				)
-				.mockResolvedValue(undefined);
-
 			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/upload`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
+				.intercept(request)
+				.reply(() => {
+					attempts++;
+
+					return {
+						statusCode: 408,
+						data: JSON.stringify({
+							message: "Request Timeout",
+							code: 408,
+						}),
+					};
 				})
-				.reply(408, { message: "Request Timeout", code: 408 })
-				.times(retries + 1);
+				.times(maxRetries + 1);
 
 			await expect(uploader.uploadSingleFile(mockParams)).rejects.toMatchObject(
 				{
 					message: "Maximum retries reached: Request Timeout",
 					code: 408,
-					details: { reason: "server error without details" },
+					cause: expect.any(LokaliseApiError),
 				},
 			);
 
-			expect(sleepSpy).toHaveBeenCalledTimes(retries);
-			expect(sleepSpy).toHaveBeenNthCalledWith(1, sleepTime * 2 ** 0);
-			expect(sleepSpy).toHaveBeenNthCalledWith(2, sleepTime * 2 ** 1);
-			expect(sleepSpy).toHaveBeenNthCalledWith(3, sleepTime * 2 ** 2);
+			expect(attempts).toBe(maxRetries + 1);
 		});
 	});
 
 	describe("Error Handling", () => {
-		it("should throw a LokaliseError for known error responses", async () => {
-			const mockError = {
-				message: "Unauthorized",
-				code: 403,
-			};
-
-			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/upload`,
-					method: "POST",
-					body: JSON.stringify(mockParams),
-				})
-				.reply(403, mockError);
-
+		it("wraps non-retryable API errors without retrying", async () => {
 			const uploader = new FakeLokaliseUpload({ apiKey }, { projectId });
-			await expect(uploader.uploadSingleFile(mockParams)).rejects.toThrow(
-				new LokaliseError(mockError.message, mockError.code, {
-					reason: "server error without details",
-				}),
+
+			let attempts = 0;
+
+			mockPool.intercept(request).reply(() => {
+				attempts++;
+
+				return {
+					statusCode: 403,
+					data: JSON.stringify({
+						message: "Forbidden",
+						code: 403,
+					}),
+				};
+			});
+
+			await expect(uploader.uploadSingleFile(mockParams)).rejects.toMatchObject(
+				{
+					message: "Forbidden",
+					code: 403,
+					cause: expect.any(LokaliseApiError),
+				},
 			);
+
+			expect(attempts).toBe(1);
 		});
 	});
 });

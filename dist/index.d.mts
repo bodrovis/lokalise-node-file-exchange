@@ -7,7 +7,6 @@ import {
 	UploadFileParams,
 } from "@lokalise/node-api";
 import { LogFunction, LogLevel, LogThreshold } from "kliedz";
-import yauzl from "yauzl";
 
 //#region lib/interfaces/LokaliseError.d.ts
 /**
@@ -30,23 +29,17 @@ interface LokaliseError$1 {
 //#endregion
 //#region lib/errors/LokaliseError.d.ts
 /**
- * Represents a custom error.
+ * Represents an error occurring during Lokalise operations.
  */
-declare class LokaliseError extends Error implements LokaliseError$1 {
-	/**
-	 * The error code representing the type of Lokalise API error.
-	 */
-	code?: number | undefined;
-	/**
-	 * Additional details about the error.
-	 */
+export declare class LokaliseError extends Error implements LokaliseError$1 {
+	code?: number;
 	details?: Record<string, string | number | boolean>;
 	/**
-	 * Creates a new instance of LokaliseError.
+	 * Creates a LokaliseError instance.
 	 *
-	 * @param message - The error message.
-	 * @param code - The error code (optional).
-	 * @param details - Optional additional details about the error.
+	 * @param message - Error description.
+	 * @param code - Optional error code.
+	 * @param details - Optional additional error information.
 	 */
 	constructor(
 		message: string,
@@ -54,9 +47,7 @@ declare class LokaliseError extends Error implements LokaliseError$1 {
 		details?: Record<string, string | number | boolean>,
 	);
 	/**
-	 * Returns a string representation of the error, including code and details.
-	 *
-	 * @returns The formatted error message.
+	 * Returns the error message with optional code and details.
 	 */
 	toString(): string;
 }
@@ -139,6 +130,7 @@ interface QueuedUploadProcessesWithErrors {
 interface RetryParams {
 	maxRetries: number;
 	initialSleepTime: number;
+	maxSleepTime: number;
 	jitterRatio: number;
 	rng: () => number;
 }
@@ -154,7 +146,7 @@ interface UploadTranslationParams {
 /**
  * A utility class for exchanging files with the Lokalise API.
  */
-declare class LokaliseFileExchange {
+declare abstract class LokaliseFileExchange {
 	/**
 	 * The Lokalise API client instance.
 	 */
@@ -166,7 +158,7 @@ declare class LokaliseFileExchange {
 	/**
 	 * Retry parameters for API requests.
 	 */
-	protected readonly retryParams: RetryParams;
+	protected readonly retryParams: Required<RetryParams>;
 	/**
 	 * Logger function.
 	 */
@@ -175,15 +167,6 @@ declare class LokaliseFileExchange {
 	 * Log threshold (do not print messages with severity less than the specified value).
 	 */
 	protected readonly logThreshold: LogThreshold;
-	/**
-	 * Default retry parameters for API requests.
-	 */
-	private static readonly defaultRetryParams;
-	private static readonly FINISHED_STATUSES;
-	private static readonly RETRYABLE_CODES;
-	protected static readonly maxConcurrentProcesses = 6;
-	private static isPendingStatus;
-	static isFinishedStatus(status?: string | null): boolean;
 	/**
 	 * Creates a new instance of LokaliseFileExchange.
 	 *
@@ -202,204 +185,11 @@ declare class LokaliseFileExchange {
 		}: LokaliseExchangeConfig,
 	);
 	/**
-	 * Executes an asynchronous operation with exponential-backoff retry logic.
+	 * Validates the project ID and retry configuration.
 	 *
-	 * The operation is attempted multiple times if it throws a retryable
-	 * `LokaliseApiError`. Each retry waits longer than the previous one based on
-	 * exponential backoff parameters (`base`, `factor`, optional jitter).
-	 *
-	 * Behaviour:
-	 * - If the operation succeeds — its result is returned immediately.
-	 * - If it fails with a retryable error — the function waits and retries.
-	 * - If the maximum number of retries is reached — throws a `LokaliseError`
-	 *   with the original error details.
-	 * - If the error is non-retryable — it is immediately wrapped into
-	 *   `LokaliseError` and rethrown.
-	 * - Any non-Lokalise errors are rethrown as-is.
-	 *
-	 * @param operation - A function that performs the async action to be retried.
-	 * @returns The successful result of the operation.
-	 * @throws LokaliseError After all retries fail or on non-retryable errors.
-	 */
-	protected withExponentialBackoff<T>(operation: () => Promise<T>): Promise<T>;
-	/**
-	 * Polls the status of queued processes until they are marked as "finished"
-	 * or until the maximum wait time is exceeded.
-	 *
-	 * Uses batched polling with limited concurrency and exponential backoff-like
-	 * wait times between iterations. Performs an initial status snapshot, then
-	 * repeatedly refreshes pending processes until either:
-	 * - all of them reach a finished state, or
-	 * - the time budget (`maxWaitTime`) is exhausted.
-	 *
-	 * A final refresh is performed for any still-pending processes before returning.
-	 *
-	 * @param processes - List of queued processes to poll.
-	 * @param initialWaitTime - Initial delay (in ms) between polling iterations.
-	 * @param maxWaitTime - Maximum total time (in ms) allowed for polling.
-	 * @param concurrency - Maximum number of processes to refresh per batch.
-	 * @returns A list of processes with their latest known statuses.
-	 */
-	protected pollProcesses(
-		processes: QueuedProcess[],
-		initialWaitTime: number,
-		maxWaitTime: number,
-		concurrency?: number,
-	): Promise<QueuedProcess[]>;
-	/**
-	 * Builds internal tracking structures for polling: a map of process IDs
-	 * to their last known state and a set of IDs that are still pending.
-	 *
-	 * Also logs the initial status of each process.
-	 *
-	 * @param processes - Initial list of queued processes.
-	 * @returns A map of processes keyed by ID and a set of pending process IDs.
-	 */
-	private initializePollingState;
-	/**
-	 * Runs the main polling loop for the given processes.
-	 *
-	 * Repeatedly fetches updated process statuses in batches while:
-	 * - there are still pending IDs, and
-	 * - the elapsed time is below the configured maximum.
-	 *
-	 * Includes a small "fast-follow" recheck when some processes have missing
-	 * status on the first iterations, and uses a growing wait time between
-	 * iterations (capped by the remaining time budget).
-	 *
-	 * @param processMap - Map of process IDs to their last known state.
-	 * @param pendingProcessIds - Set of IDs that are not finished yet.
-	 * @param startTime - Timestamp (ms) when polling started.
-	 * @param initialWaitTime - Initial delay (ms) between polling iterations.
-	 * @param maxWaitTime - Maximum total polling duration (ms).
-	 * @param concurrency - Maximum number of processes to refresh per batch.
-	 */
-	private runPollingLoop;
-	/**
-	 * Performs a final status refresh for any processes that are still marked
-	 * as pending after the main polling loop.
-	 *
-	 * This gives one last chance to capture terminal statuses right before
-	 * returning the result to the caller.
-	 *
-	 * @param processMap - Map of process IDs to their last known state.
-	 * @param pendingProcessIds - Set of IDs that are still considered pending.
-	 * @param concurrency - Maximum number of processes to refresh per batch.
-	 */
-	private refreshRemainingProcesses;
-	/**
-	 * Determines whether the given Lokalise API error should trigger a retry attempt.
-	 *
-	 * An error is considered retryable if its `code` matches one of the predefined
-	 * retryable status codes.
-	 *
-	 * @param error - The `LokaliseApiError` instance to evaluate.
-	 * @returns `true` if the error is retryable, otherwise `false`.
-	 */
-	private isRetryable;
-	/**
-	 * Logs a message using the configured logger, respecting the current log threshold.
-	 *
-	 * Wraps the raw logger call by attaching metadata such as:
-	 * - `level` — severity of the log entry,
-	 * - `threshold` — active log level threshold used to filter messages,
-	 * - `withTimestamp` — instructs the logger to prepend a timestamp.
-	 *
-	 * All variadic `args` are forwarded directly to the logger.
-	 *
-	 * @param level - Log level of the message being emitted.
-	 * @param args - Additional values to pass to the logger.
-	 */
-	protected logMsg(level: LogLevel, ...args: unknown[]): void;
-	/**
-	 * Fetches the most recent state of a queued process from the Lokalise API.
-	 *
-	 * Sends a GET request for the process identified by `processId` and logs
-	 * both the request and the received status. Used during polling to refresh
-	 * the status of long-running async operations.
-	 *
-	 * @param processId - The unique identifier of the queued process to retrieve.
-	 * @returns A promise resolving to the updated `QueuedProcess` object.
-	 */
-	protected getUpdatedProcess(processId: string): Promise<QueuedProcess>;
-	/**
-	 * Validates essential client configuration parameters before any operations run.
-	 *
-	 * Ensures that:
-	 * - `projectId` is present and is a non-empty string,
-	 * - retry settings (`maxRetries`, `initialSleepTime`, `jitterRatio`)
-	 *   fall within acceptable ranges.
-	 *
-	 * Throws a `LokaliseError` if any configuration parameter is missing,
-	 * malformed, or outside allowed bounds.
+	 * @throws {LokaliseError} If any configuration value is invalid.
 	 */
 	private validateParams;
-	/**
-	 * Executes asynchronous work over a list of items with a fixed concurrency limit.
-	 *
-	 * Spawns up to `limit` parallel worker loops. Each loop pulls the next
-	 * unprocessed item index in a thread-safe manner (via shared counter `i`),
-	 * runs the provided async `worker` function for that item, and stores the
-	 * resulting value in the corresponding position of the `results` array.
-	 *
-	 * Processing stops when all items have been consumed. If any worker throws,
-	 * the error propagates and the whole operation rejects.
-	 *
-	 * @param items - The list of items to process.
-	 * @param limit - Maximum number of concurrent async operations.
-	 * @param worker - Async handler executed for each item.
-	 * @returns A promise resolving to an array of results, preserving input order.
-	 */
-	protected runWithConcurrencyLimit<T, R>(
-		items: T[],
-		limit: number,
-		worker: (item: T, index: number) => Promise<R>,
-	): Promise<R[]>;
-	/**
-	 * Fetches updated process states for a list of process IDs in parallel,
-	 * respecting a maximum concurrency limit.
-	 *
-	 * Each process ID is resolved via `getUpdatedProcess()`. If the fetch
-	 * succeeds, the returned object includes both `id` and the updated
-	 * `process`. If an error occurs, a warning is logged and the result
-	 * contains only the `id`, allowing polling to continue without failing
-	 * the entire batch.
-	 *
-	 * Internally uses `runWithConcurrencyLimit` to enforce controlled parallelism.
-	 *
-	 * @param processIds - The list of queued process IDs to refresh.
-	 * @param concurrency - Maximum number of simultaneous requests.
-	 * @returns A list of objects mapping each ID to its latest fetched state
-	 *          (or `undefined` if the fetch failed).
-	 */
-	protected fetchProcessesBatch(
-		processIds: string[],
-		concurrency?: number,
-	): Promise<
-		Array<{
-			id: string;
-			process?: QueuedProcess;
-		}>
-	>;
-	/**
-	 * Delays execution for a given duration.
-	 *
-	 * Creates a Promise that resolves after the specified number of milliseconds,
-	 * allowing async workflows to pause without blocking the event loop.
-	 *
-	 * @param ms - Number of milliseconds to wait.
-	 * @returns A promise that resolves after the delay.
-	 */
-	protected static sleep(ms: number): Promise<void>;
-	/**
-	 * Computes the exponential-backoff delay for a retry attempt,
-	 * optionally adding jitter to avoid synchronized retries.
-	 *
-	 * @param retryParams - Backoff settings (initial delay, jitter, RNG).
-	 * @param attempt - Retry attempt number (1-based).
-	 * @returns Calculated sleep time in milliseconds.
-	 */
-	protected calculateSleepMs(retryParams: RetryParams, attempt: number): number;
 	/**
 	 * Builds the final Lokalise client configuration,
 	 * enabling silent mode when the log threshold is `"silent"`.
@@ -419,26 +209,33 @@ declare class LokaliseFileExchange {
 	 */
 	private createApiClient;
 	/**
-	 * Merges user-provided retry settings with default retry parameters.
-	 *
-	 * @param retryParams - Optional overrides.
-	 * @returns Fully resolved retry configuration.
-	 */
-	private buildRetryParams;
-	/**
 	 * Selects the logger implementation based on whether color output is enabled.
 	 *
 	 * @param logColor - If true, uses the colorized logger.
 	 * @returns The chosen log function.
 	 */
 	private chooseLogger;
+	/**
+	 * Logs a message using the configured logger, respecting the current log threshold.
+	 *
+	 * Wraps the raw logger call by attaching metadata such as:
+	 * - `level` — severity of the log entry,
+	 * - `threshold` — active log level threshold used to filter messages,
+	 * - `withTimestamp` — instructs the logger to prepend a timestamp.
+	 *
+	 * All variadic `args` are forwarded directly to the logger.
+	 *
+	 * @param level - Log level of the message being emitted.
+	 * @param args - Additional values to pass to the logger.
+	 */
+	protected logMsg(level: LogLevel, ...args: unknown[]): void;
 }
 //#endregion
 //#region lib/services/LokaliseDownload.d.ts
 /**
  * Handles downloading and extracting translation files from Lokalise.
  */
-declare class LokaliseDownload extends LokaliseFileExchange {
+export declare class LokaliseDownload extends LokaliseFileExchange {
 	private static readonly defaultProcessParams;
 	/**
 	 * Downloads translations from Lokalise, optionally using async polling, and extracts them to disk.
@@ -452,160 +249,43 @@ declare class LokaliseDownload extends LokaliseFileExchange {
 		processDownloadFileParams,
 	}: DownloadTranslationParams): Promise<void>;
 	/**
-	 * Unpacks a ZIP file into the specified directory.
+	 * Retrieves translation bundle metadata from Lokalise
+	 * with exponential-backoff retry support.
 	 *
-	 * @param zipFilePath - Path to the ZIP file.
-	 * @param outputDir - Directory to extract the files into.
-	 * @throws {LokaliseError} If extraction fails or malicious paths are detected.
-	 */
-	protected unpackZip(zipFilePath: string, outputDir: string): Promise<void>;
-	/**
-	 * Downloads a ZIP file from the given URL and stores it as a temporary file.
-	 *
-	 * Performs URL validation, optional timeout handling, fetch request execution,
-	 * response integrity checks, and writes the ZIP stream to disk.
-	 *
-	 * @param url - Direct URL to the ZIP bundle provided by Lokalise.
-	 * @param downloadTimeout - Optional timeout (in ms) for the HTTP request. `0` disables timeouts.
-	 * @returns Absolute path to the temporary ZIP file on disk.
-	 */
-	protected downloadZip(url: string, downloadTimeout?: number): Promise<string>;
-	/**
-	 * Builds a unique temporary file path for storing the downloaded ZIP bundle.
-	 *
-	 * Uses a UUID when available or falls back to a combination of PID, timestamp, and random bytes.
-	 *
-	 * @returns A full path to a temporary ZIP file in the OS temp directory.
-	 */
-	protected buildTempZipPath(): string;
-	/**
-	 * Creates an optional AbortSignal for enforcing request timeouts.
-	 *
-	 * Returns `undefined` when no timeout is configured, disabling abort handling.
-	 *
-	 * @param downloadTimeout - Timeout in milliseconds. `0` or negative disables the signal.
-	 * @returns An AbortSignal if timeout is enabled, otherwise `undefined`.
-	 */
-	private buildAbortSignal;
-	/**
-	 * Executes a fetch request for the ZIP bundle URL with optional timeout handling.
-	 *
-	 * Wraps network failures, timeouts, and unexpected fetch errors into `LokaliseError`
-	 * so higher-level logic receives consistent exceptions.
-	 *
-	 * @param bundleURL - Parsed URL pointing to the ZIP file.
-	 * @param signal - Optional `AbortSignal` used to enforce request timeouts.
-	 * @param downloadTimeout - Timeout duration (ms) used for error messaging.
-	 * @returns The raw `Response` object returned by `fetch` if the request succeeds.
-	 */
-	protected fetchZipResponse(
-		bundleURL: URL,
-		signal: AbortSignal | undefined,
-		downloadTimeout: number,
-	): Promise<Response>;
-	/**
-	 * Validates and extracts the readable body stream from a fetch response.
-	 *
-	 * Ensures the response is OK and has a non-null body before returning it.
-	 *
-	 * @param response - The HTTP response returned by `fetch`.
-	 * @param originalUrl - Original URL used for error diagnostics.
-	 * @returns A web ReadableStream of the ZIP file contents.
-	 * @throws {LokaliseError} If the response is not OK or body is missing.
-	 */
-	private getZipResponseBody;
-	/**
-	 * Streams the ZIP response body to a temporary file on disk.
-	 *
-	 * Cleans up the temporary file if the streaming pipeline fails.
-	 *
-	 * @param body - Web readable stream of the ZIP content.
-	 * @param tempZipPath - Path where the ZIP should be written.
-	 * @returns A promise that resolves once the file is fully written.
-	 * @throws {Error} Re-throws any pipeline errors after attempting cleanup.
-	 */
-	private writeZipToDisk;
-	/**
-	 * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
-	 *
-	 * @param downloadFileParams - Parameters for Lokalise API file download.
-	 * @returns The downloaded bundle metadata.
-	 * @throws {LokaliseError} If retries are exhausted or an API error occurs.
+	 * @param downloadFileParams - Parameters for the Lokalise API request.
+	 * @returns The translation bundle metadata.
+	 * @throws {LokaliseError} If the API request fails.
 	 */
 	protected getTranslationsBundle(
 		downloadFileParams: DownloadFileParams,
 	): Promise<DownloadBundle>;
 	/**
-	 * Retrieves a translation bundle from Lokalise with retries and exponential backoff.
+	 * Starts an asynchronous translation bundle download
+	 * with exponential-backoff retry support.
 	 *
-	 * @param downloadFileParams - Parameters for Lokalise API file download.
-	 * @returns The queued process.
-	 * @throws {LokaliseError} If retries are exhausted or an API error occurs.
+	 * @param downloadFileParams - Parameters for the Lokalise API request.
+	 * @returns The queued download process.
+	 * @throws {LokaliseError} If the API request fails.
 	 */
 	protected getTranslationsBundleAsync(
 		downloadFileParams: DownloadFileParams,
 	): Promise<QueuedProcess>;
 	/**
-	 * Extracts a single entry from a ZIP archive to the specified output directory.
+	 * Resolves download process parameters using default values
+	 * for any missing options.
 	 *
-	 * Creates necessary directories and streams the file content to disk.
-	 *
-	 * @param entry - The ZIP entry to extract.
-	 * @param zipfile - The open ZIP file instance.
-	 * @param outputDir - The directory where the entry should be written.
-	 * @returns A promise that resolves when the entry is fully written.
-	 */
-	protected handleZipEntry(
-		entry: yauzl.Entry,
-		zipfile: yauzl.ZipFile,
-		outputDir: string,
-	): Promise<void>;
-	/**
-	 * Creates a directory and all necessary parent directories.
-	 *
-	 * @param dir - The directory path to create.
-	 * @returns A promise that resolves when the directory is created.
-	 */
-	private createDir;
-	/**
-	 * Resolves and validates the full output path for a ZIP entry.
-	 *
-	 * Prevents path traversal attacks by ensuring the resolved path stays within the output directory.
-	 *
-	 * @param outputDir - The base output directory.
-	 * @param entryFilename - The filename of the ZIP entry.
-	 * @returns The absolute and safe path to write the entry.
-	 * @throws {LokaliseError} If the entry path is detected as malicious.
-	 */
-	protected processZipEntryPath(
-		outputDir: string,
-		entryFilename: string,
-	): string;
-	/**
-	 * Parses and validates a URL string, ensuring it uses HTTP or HTTPS protocol.
-	 *
-	 * @param value - The URL string to validate.
-	 * @returns A parsed `URL` object if valid.
-	 * @throws {LokaliseError} If the URL is invalid or uses an unsupported protocol.
-	 */
-	private assertHttpUrl;
-	/**
-	 * Builds effective process parameters for the download workflow.
-	 *
-	 * Merges caller-provided overrides with the default settings.
-	 *
-	 * @param overrides - Partial process configuration to override defaults.
+	 * @param overrides - Optional process configuration overrides.
 	 * @returns Fully resolved process parameters.
 	 */
 	private buildProcessParams;
 	/**
-	 * Unpacks the downloaded ZIP archive into the target directory and
-	 * removes the temporary archive file afterwards.
+	 * Extracts the downloaded ZIP archive and removes
+	 * the temporary archive afterward.
 	 *
-	 * Logs progress and always attempts to delete the temporary file.
+	 * Cleanup failures are logged without masking extraction errors.
 	 *
-	 * @param zipFilePath - Path to the temporary ZIP file.
-	 * @param unpackTo - Destination directory for extracted files.
+	 * @param zipFilePath - Path to the temporary ZIP archive.
+	 * @param unpackTo - Destination directory.
 	 */
 	private processZip;
 	/**
@@ -618,15 +298,13 @@ declare class LokaliseDownload extends LokaliseFileExchange {
 	 */
 	private fetchBundleURLSync;
 	/**
-	 * Polls an async download process until it completes or the maximum wait time is reached.
+	 * Polls an asynchronous download process and returns
+	 * its latest known state.
 	 *
-	 * Validates the final status and throws if the process did not finish properly.
-	 *
-	 * @param downloadProcess - The initially queued async process.
-	 * @param initialWait - Initial interval in ms before the first poll.
-	 * @param maxWait - Maximum total wait time in ms.
-	 * @returns The completed process object.
-	 * @throws {LokaliseError} if the process is not found or does not reach a terminal status.
+	 * @param downloadProcess - Initially queued download process.
+	 * @param initialWait - Initial polling interval in milliseconds.
+	 * @param maxWait - Maximum polling time in milliseconds.
+	 * @returns The latest process state.
 	 */
 	protected pollAsyncDownload(
 		downloadProcess: QueuedProcess,
@@ -645,44 +323,19 @@ declare class LokaliseDownload extends LokaliseFileExchange {
 	 */
 	private fetchTranslationBundleURL;
 	/**
-	 * Extracts and verifies the download URL from a finished async process.
+	 * Resolves the bundle URL from a completed async process.
 	 *
-	 * Ensures `details.download_url` is present and is a string.
-	 *
-	 * @param completedProcess - Process object with status `finished`.
-	 * @returns Valid download URL string.
-	 * @throws {LokaliseError} If the URL is missing or invalid.
+	 * Throws when the process failed, was cancelled,
+	 * or did not finish within the polling time budget.
 	 */
-	private handleFinishedAsyncProcess;
+	private resolveAsyncBundleUrl;
 	/**
-	 * Handles a failed or cancelled async process by throwing an error with context.
+	 * Queues an asynchronous translation bundle download,
+	 * polls the process, and returns the generated bundle URL.
 	 *
-	 * Includes the process status and optional message from Lokalise.
-	 *
-	 * @param completedProcess - Process object with status `failed` or `cancelled`.
-	 * @throws {LokaliseError} Always throws, as the process did not succeed.
-	 */
-	private handleFailedAsyncProcess;
-	/**
-	 * Handles an unexpected async process outcome when it did not finish in time.
-	 *
-	 * Logs a warning and throws an error indicating that finalization took too long.
-	 *
-	 * @param completedProcess - Process object with unexpected status.
-	 * @param maxWait - Effective maximum wait time used during polling.
-	 * @throws {LokaliseError} Always throws to signal an unexpected async outcome.
-	 */
-	private handleUnfinishedAsyncProcess;
-	/**
-	 * Runs the async download flow: queues the download, polls its status,
-	 * and returns the final bundle URL once the process completes.
-	 *
-	 * Handles finished, failed/cancelled, and unexpected statuses separately.
-	 *
-	 * @param downloadFileParams - Parameters for Lokalise API async file download.
-	 * @param processParams - Effective process parameters controlling polling behavior.
-	 * @returns Direct URL to the generated ZIP bundle.
-	 * @throws {LokaliseError} If the process fails, is cancelled, or does not finalize properly.
+	 * @param downloadFileParams - Lokalise API download parameters.
+	 * @param processParams - Resolved download process configuration.
+	 * @returns Direct URL of the generated ZIP bundle.
 	 */
 	protected fetchBundleURLAsync(
 		downloadFileParams: DownloadFileParams,
@@ -694,13 +347,15 @@ declare class LokaliseDownload extends LokaliseFileExchange {
 /**
  * Handles uploading translation files to Lokalise.
  */
-declare class LokaliseUpload extends LokaliseFileExchange {
+export declare class LokaliseUpload extends LokaliseFileExchange {
 	private static readonly defaultPollingParams;
 	/**
-	 * Collects files, uploads them to Lokalise, and optionally polls for process completion, returning both processes and errors.
+	 * Collects and uploads translation files to Lokalise.
+	 * Optionally polls queued processes and returns their statuses
+	 * along with any upload errors.
 	 *
-	 * @param {UploadTranslationParams} uploadTranslationParams - Parameters for collecting and uploading files.
-	 * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
+	 * @param params - File collection, upload, and processing options.
+	 * @returns Queued processes and upload errors.
 	 */
 	uploadTranslations({
 		uploadFileParams,
@@ -708,206 +363,52 @@ declare class LokaliseUpload extends LokaliseFileExchange {
 		processUploadFileParams,
 	}?: UploadTranslationParams): Promise<QueuedUploadProcessesWithErrors>;
 	/**
-	 * Collects files from the filesystem based on the given parameters.
+	 * Uploads a single file to Lokalise with retry support.
 	 *
-	 * @param {CollectFileParams} collectFileParams - Parameters for file collection, including directories, extensions, and patterns.
-	 * @returns {Promise<string[]>} A promise resolving with the list of collected file paths.
-	 */
-	protected collectFiles({
-		inputDirs,
-		extensions,
-		excludePatterns,
-		recursive,
-		fileNamePattern,
-	}?: CollectFileParams): Promise<string[]>;
-	/**
-	 * Uploads a single file to Lokalise.
-	 *
-	 * @param {UploadFileParams} uploadParams - Parameters for uploading the file.
-	 * @returns {Promise<QueuedProcess>} A promise resolving with the upload process details.
+	 * @param uploadParams - File upload parameters.
+	 * @returns The queued upload process.
 	 */
 	protected uploadSingleFile(
 		uploadParams: UploadFileParams,
 	): Promise<QueuedProcess>;
 	/**
-	 * Processes a file to prepare it for upload, converting it to base64 and extracting its language code.
+	 * Uploads files concurrently while preserving input order
+	 * in the resulting process and error arrays.
 	 *
-	 * @param file - The absolute path to the file.
-	 * @param projectRoot - The root directory of the project.
-	 * @param processParams - Optional processing settings including inferers.
-	 * @returns A promise resolving with the processed file details, including base64 content, relative path, and language code.
-	 */
-	protected processFile(
-		file: string,
-		projectRoot: string,
-		processParams?: ProcessUploadFileParams,
-	): Promise<ProcessedFile>;
-	/**
-	 * Infers the relative path for an uploaded file.
-	 *
-	 * Tries a custom `filenameInferer` first; if it fails or returns empty/whitespace,
-	 * falls back to a POSIX-style relative path based on the project root.
-	 *
-	 * @param file - Absolute path to the source file.
-	 * @param projectRoot - Root directory of the project.
-	 * @param processParams - Optional processing settings including filename inferer.
-	 * @returns A promise resolving with the inferred relative path.
-	 */
-	private inferRelativePath;
-	/**
-	 * Infers the language code for an uploaded file.
-	 *
-	 * Tries a custom `languageInferer` first; if it fails or returns empty/whitespace,
-	 * falls back to extracting the language code from the filename before the last extension.
-	 *
-	 * Example: "en.default.json" → "default"
-	 *
-	 * @param file - Absolute path to the source file.
-	 * @param relativePath - Effective relative path of the file (used for fallback parsing).
-	 * @param processParams - Optional processing settings including language inferer.
-	 * @returns A promise resolving with the inferred language code.
-	 */
-	private inferLanguageCode;
-	/**
-	 * Reads a file from disk and returns its content encoded as base64.
-	 *
-	 * @param file - Absolute path to the source file.
-	 * @returns A promise resolving with the file content encoded in base64.
-	 */
-	private readFileAsBase64;
-	/**
-	 * Uploads files in parallel with a limit on the number of concurrent uploads.
-	 *
-	 * @param {string[]} files - List of file paths to upload.
-	 * @param {Partial<UploadFileParams>} baseUploadFileParams - Base parameters for uploads.
-	 * @param {ProcessUploadFileParams} [processParams] - Optional processing settings including inferers.
-	 * @returns {Promise<{ processes: QueuedProcess[]; errors: FileUploadError[] }>} A promise resolving with successful processes and upload errors.
+	 * Individual file failures do not stop other uploads.
 	 */
 	private parallelUpload;
+	private pollUploadedProcesses;
 	/**
-	 * Normalizes an array of file extensions by ensuring each starts with a dot and is lowercase.
+	 * Resolves polling options and validates enabled polling settings.
 	 *
-	 * @param extensions - The list of file extensions to normalize.
-	 * @returns A new array with normalized file extensions.
+	 * @param params - Optional polling configuration.
+	 * @returns Polling configuration with all defaults applied.
 	 */
-	private normalizeExtensions;
+	private resolvePollingParams;
 	/**
-	 * Determines whether a file should be collected based on its extension and name pattern.
+	 * Logs upload results and, if polling was performed,
+	 * summarizes the latest process statuses.
 	 *
-	 * @param entry - The directory entry to evaluate.
-	 * @param normalizedExtensions - List of allowed file extensions.
-	 * @param fileNameRegex - Regular expression to match valid filenames.
-	 * @returns `true` if the file matches both extension and name pattern, otherwise `false`.
+	 * @param processes - Queued processes with their latest states.
+	 * @param errors - Errors encountered while uploading files.
+	 * @param wasPolled - Whether process polling was performed.
 	 */
-	private shouldCollectFile;
-	/**
-	 * Creates a regular expression from a given pattern string or RegExp.
-	 *
-	 * @param fileNamePattern - The filename pattern to convert into a RegExp.
-	 * @returns A valid RegExp object.
-	 * @throws {Error} If the pattern string is invalid and cannot be compiled.
-	 */
-	private makeFilenameRegexp;
-	/**
-	 * Converts an array of exclude patterns into an array of RegExp objects.
-	 *
-	 * @param excludePatterns - An array of strings or regular expressions to exclude.
-	 * @returns An array of compiled RegExp objects.
-	 * @throws {Error} If any pattern is invalid and cannot be compiled.
-	 */
-	private makeExcludeRegExes;
-	/**
-	 * Safely reads the contents of a directory, returning an empty array if access fails.
-	 *
-	 * Logs a warning if the directory cannot be read (e.g. due to permissions or non-existence).
-	 *
-	 * @param dir - The directory path to read.
-	 * @returns A promise that resolves to an array of directory entries, or an empty array on failure.
-	 */
-	private safeReadDir;
-	/**
-	 * Checks if a file path matches any of the provided exclusion patterns.
-	 *
-	 * @param filePath - The path of the file to check.
-	 * @param excludeRegexes - An array of RegExp patterns to test against.
-	 * @returns `true` if the file path matches any exclude pattern, otherwise `false`.
-	 */
-	private shouldExclude;
-	/**
-	 * Creates a queue of absolute paths from the provided input directories.
-	 *
-	 * @param inputDirs - An array of input directory paths (relative or absolute).
-	 * @returns An array of resolved absolute directory paths.
-	 */
-	private makeQueue;
-	/**
-	 * Processes a queue of directories to collect files matching given criteria.
-	 *
-	 * Recursively reads directories (if enabled), filters files by extension,
-	 * filename pattern, and exclusion rules, and collects matching file paths.
-	 *
-	 * @param queue - The list of directories to process.
-	 * @param exts - Allowed file extensions (normalized).
-	 * @param nameRx - Regular expression to match valid filenames.
-	 * @param excludeRx - Array of exclusion patterns.
-	 * @param recursive - Whether to traverse subdirectories.
-	 * @returns A promise that resolves to an array of matched file paths.
-	 */
-	private processCollectionQueue;
-	/**
-	 * Handles a single directory entry during file collection.
-	 *
-	 * Applies exclusion rules, optionally queues directories for recursion,
-	 * and collects files that match the specified extension and filename pattern.
-	 *
-	 * @param entry - The directory entry to handle.
-	 * @param fullPath - The absolute path to the entry.
-	 * @param queue - The processing queue for directories.
-	 * @param found - The list to store matched file paths.
-	 * @param opts - Options including extensions, name pattern, exclusions, and recursion flag.
-	 */
-	private handleEntry;
-	/**
-	 * Normalizes a filesystem path to POSIX format.
-	 *
-	 * Replaces platform-specific separators (e.g. `\` on Windows)
-	 * with POSIX-style `/` to ensure consistent path handling
-	 * across different operating systems.
-	 *
-	 * @param p - Original filesystem path.
-	 * @returns The same path but with POSIX separators.
-	 */
-	private toPosixPath;
-	/**
-	 * Tests a value against a regular expression without retaining state between calls.
-	 *
-	 * Global (`g`) and sticky (`y`) regular expressions mutate `lastIndex` when
-	 * `test()` is called, which can cause repeated checks to produce inconsistent results.
-	 * Resetting `lastIndex` ensures each value is tested independently.
-	 *
-	 * @param regex - The regular expression to test.
-	 * @param value - The string value to test against the regular expression.
-	 * @returns `true` if the value matches the regular expression, otherwise `false`.
-	 */
-	private testRegex;
+	private logUploadSummary;
 }
-
 //#endregion
-export {
-	type CollectFileParams,
-	type DownloadTranslationParams,
-	type ExtractParams,
-	type FileUploadError,
-	LokaliseDownload,
-	LokaliseError,
-	type LokaliseExchangeConfig,
-	LokaliseUpload,
-	type PartialUploadFileParams,
-	type ProcessDownloadFileParams,
-	type ProcessedFile,
-	type ProcessUploadFileParams,
-	type QueuedUploadProcessesWithErrors,
-	type RetryParams,
-	type UploadTranslationParams,
+export type {
+	CollectFileParams,
+	DownloadTranslationParams,
+	ExtractParams,
+	FileUploadError,
+	LokaliseExchangeConfig,
+	PartialUploadFileParams,
+	ProcessDownloadFileParams,
+	ProcessedFile,
+	ProcessUploadFileParams,
+	QueuedUploadProcessesWithErrors,
+	RetryParams,
+	UploadTranslationParams,
 };
 //# sourceMappingURL=index.d.mts.map

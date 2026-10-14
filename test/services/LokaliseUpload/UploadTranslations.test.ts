@@ -1,16 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-
-import { MockAgent, setGlobalDispatcher } from "undici";
+import { getGlobalDispatcher, MockAgent, setGlobalDispatcher } from "undici";
 
 import { LokaliseError } from "../../../lib/errors/LokaliseError.js";
-import { FakeLokaliseUpload } from "../../fixtures/fake_classes/FakeLokaliseUpload.js";
+import { FakeLokaliseUpload } from "../../fixtures/fake-classes/FakeLokaliseUpload.js";
 import { createTestFs, type TestFs } from "../../helpers/testFs.js";
 import type { Interceptable } from "../../setup.js";
 import {
-	afterAll,
 	afterEach,
-	beforeAll,
 	beforeEach,
 	describe,
 	expect,
@@ -20,27 +17,26 @@ import {
 
 describe("LokaliseUpload: uploadTranslations()", () => {
 	const projectId = "803826145ba90b42d5d860.46800099";
-	const apiKey = process.env.API_KEY as string;
+	const apiKey = "test-api-key";
+	const uploadPath = `/api2/projects/${projectId}/files/upload`;
 
-	let lokaliseUpload: FakeLokaliseUpload;
-
+	let uploader: FakeLokaliseUpload;
 	let mockAgent: MockAgent;
 	let mockPool: Interceptable;
+	let previousDispatcher: ReturnType<typeof getGlobalDispatcher>;
 
 	let testFs: TestFs;
 	let restoreCwd: () => void;
 
-	beforeAll(() => {
-		mockAgent = new MockAgent();
-		setGlobalDispatcher(mockAgent);
-		mockAgent.disableNetConnect();
-	});
-
-	afterAll(() => {
-		mockAgent.close();
-	});
-
 	beforeEach(async () => {
+		previousDispatcher = getGlobalDispatcher();
+
+		mockAgent = new MockAgent();
+		mockAgent.disableNetConnect();
+		setGlobalDispatcher(mockAgent);
+
+		mockPool = mockAgent.get("https://api.lokalise.com");
+
 		testFs = await createTestFs({
 			locales: {
 				"en.json": '{"key": "value"}',
@@ -60,56 +56,66 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 		});
 
 		restoreCwd = testFs.useAsCwd();
-
-		lokaliseUpload = new FakeLokaliseUpload({ apiKey }, { projectId });
-
-		mockPool = mockAgent.get("https://api.lokalise.com");
+		uploader = new FakeLokaliseUpload({ apiKey }, { projectId });
 	});
 
 	afterEach(async () => {
-		vi.restoreAllMocks();
-
-		restoreCwd();
-		await testFs.cleanup();
+		try {
+			mockAgent.assertNoPendingInterceptors();
+		} finally {
+			setGlobalDispatcher(previousDispatcher);
+			await mockAgent.close();
+			restoreCwd();
+			await testFs.cleanup();
+			vi.restoreAllMocks();
+		}
 	});
 
 	describe("Basic Behavior", () => {
-		it("should collect files and upload them in parallel", async () => {
-			const processId = "123abc";
-			let uploadCount = 0;
-			const jsonFilesCount = 8;
+		it("collects and uploads matching files", async () => {
+			const fileCount = 8;
+			const requests: Array<{
+				filename: string;
+				lang_iso: string;
+				data: string;
+				replace_modified?: boolean;
+			}> = [];
 
 			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/upload`,
-					method: "POST",
-				})
-				.reply(() => {
-					uploadCount++;
+				.intercept({ path: uploadPath, method: "POST" })
+				.reply(({ body }) => {
+					if (typeof body !== "string") {
+						throw new Error("Expected JSON request body.");
+					}
+
+					const payload = JSON.parse(body);
+					requests.push(payload);
 
 					return {
 						statusCode: 200,
 						data: {
 							process: {
-								process_id: `${processId}-${uploadCount}`,
+								process_id: `process-${requests.length}`,
 								status: "queued",
 							},
 						},
 					};
 				})
-				.times(jsonFilesCount);
+				.times(fileCount);
 
-			const { processes, errors } = await lokaliseUpload.uploadTranslations({
+			const { processes, errors } = await uploader.uploadTranslations({
 				collectFileParams: {
 					inputDirs: ["./locales"],
 					extensions: [".json", ".weird_json"],
 				},
 				uploadFileParams: { replace_modified: true },
 				processUploadFileParams: {
-					filenameInferer: async (filePath) =>
+					filenameInferer: (filePath) =>
 						path.extname(filePath) === ".weird_json" ? "en.json" : "",
 					languageInferer: async (filePath) => {
-						if (path.extname(filePath) !== ".weird_json") return "";
+						if (path.extname(filePath) !== ".weird_json") {
+							return "";
+						}
 
 						const content = await fs.promises.readFile(filePath, "utf8");
 						const translations = JSON.parse(content);
@@ -119,39 +125,98 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 				},
 			});
 
-			expect(uploadCount).toEqual(jsonFilesCount);
-			expect(processes).toHaveLength(jsonFilesCount);
+			expect(processes).toHaveLength(fileCount);
 			expect(errors).toHaveLength(0);
-			const firstProcess = processes[0];
+			expect(requests).toHaveLength(fileCount);
+			expect(processes.every((p) => p.status === "queued")).toBe(true);
 
-			expect(firstProcess).toBeDefined();
-			expect(firstProcess?.status).toEqual("queued");
+			expect(
+				requests.every((request) => request.replace_modified === true),
+			).toBe(true);
+
+			expect(requests).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						filename: "en.json",
+						lang_iso: "en_GB",
+						data: Buffer.from('{"en_GB": {"key": "value"}}').toString("base64"),
+					}),
+					expect.objectContaining({
+						filename: "locales/subdir/nested/de.json",
+						lang_iso: "de",
+					}),
+				]),
+			);
 		});
 
-		it("should not upload anything when no files were collected", async () => {
-			const { processes, errors } = await lokaliseUpload.uploadTranslations({
+		it("returns empty results when no files match", async () => {
+			const result = await uploader.uploadTranslations({
 				collectFileParams: {
 					inputDirs: ["./locales"],
 					extensions: [".fake_ext"],
 				},
 			});
 
-			expect(processes).toHaveLength(0);
+			expect(result).toEqual({ processes: [], errors: [] });
+		});
+
+		it("preserves file order when uploads finish out of order", async () => {
+			mockPool
+				.intercept({
+					path: uploadPath,
+					method: "POST",
+					body: (body) => JSON.parse(body).filename === "locales/en.json",
+				})
+				.reply(200, {
+					process: { process_id: "en", status: "queued" },
+				})
+				.delay(100);
+
+			mockPool
+				.intercept({
+					path: uploadPath,
+					method: "POST",
+					body: (body) => JSON.parse(body).filename === "locales/fr.json",
+				})
+				.reply(200, {
+					process: { process_id: "fr", status: "queued" },
+				});
+
+			const { processes, errors } = await uploader.uploadTranslations({
+				collectFileParams: {
+					inputDirs: ["./locales"],
+					extensions: [".json"],
+					fileNamePattern: "^(en|fr)\\.json$",
+				},
+			});
+
 			expect(errors).toHaveLength(0);
+			expect(processes.map((p) => p.process_id)).toEqual(["en", "fr"]);
+		});
+
+		it("rejects an invalid polling configuration before collecting files", async () => {
+			const readdirSpy = vi.spyOn(fs.promises, "readdir");
+
+			await expect(
+				uploader.uploadTranslations({
+					processUploadFileParams: {
+						pollStatuses: true,
+						pollInitialWaitTime: -1,
+					},
+				}),
+			).rejects.toThrow("initialWaitTime must be a positive finite value.");
+
+			expect(readdirSpy).not.toHaveBeenCalled();
 		});
 	});
 
 	describe("Error Handling", () => {
-		it("should continue uploading other files even if one upload fails", async () => {
+		it("continues uploading when one file fails", async () => {
+			const fileCount = 7;
 			let uploadCount = 0;
-			const jsonFilesCount = 7;
-			const errorsCount = 1;
 
 			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/upload`,
-					method: "POST",
-				})
+				.intercept({ path: uploadPath, method: "POST" })
 				.reply(() => {
 					uploadCount++;
 
@@ -169,43 +234,69 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 						statusCode: 200,
 						data: JSON.stringify({
 							process: {
-								process_id: "123abc",
+								process_id: `process-${uploadCount}`,
 								status: "queued",
 							},
 						}),
 					};
 				})
-				.times(jsonFilesCount);
+				.times(fileCount);
 
-			const { processes, errors } = await lokaliseUpload.uploadTranslations({
+			const { processes, errors } = await uploader.uploadTranslations({
 				collectFileParams: {
 					inputDirs: ["./locales"],
 					extensions: [".json"],
 				},
 			});
 
-			expect(uploadCount).toEqual(jsonFilesCount);
-			expect(processes).toHaveLength(jsonFilesCount - errorsCount);
-			expect(errors).toHaveLength(errorsCount);
+			expect(uploadCount).toBe(fileCount);
+			expect(processes).toHaveLength(fileCount - 1);
+			expect(errors).toHaveLength(1);
+			expect(errors[0]?.file).toMatch(/\.json$/);
+			expect(errors[0]?.error).toBeInstanceOf(LokaliseError);
+		});
 
-			const firstError = errors[0];
-			expect(firstError).toBeDefined();
-			expect(firstError?.error).toBeInstanceOf(LokaliseError);
+		it("reports a custom language inferer failure", async () => {
+			const { processes, errors } = await uploader.uploadTranslations({
+				collectFileParams: {
+					inputDirs: ["./locales"],
+					fileNamePattern: "^en\\.json$",
+				},
+				processUploadFileParams: {
+					languageInferer: () => {
+						throw new Error("Cannot read language metadata.");
+					},
+				},
+			});
+
+			expect(processes).toHaveLength(0);
+			expect(errors).toHaveLength(1);
+			expect(errors[0]?.error).toMatchObject({
+				message: "Cannot read language metadata.",
+			});
+		});
+
+		it("rejects a missing input directory", async () => {
+			await expect(
+				uploader.uploadTranslations({
+					collectFileParams: {
+						inputDirs: ["./missing-locales"],
+					},
+				}),
+			).rejects.toThrow("Failed to read directory:");
 		});
 	});
 
 	describe("Polling", () => {
-		it("should upload files and poll their statuses until finished", async () => {
-			const processIdPrefix = "poll-process";
+		it("polls each queued process until it reaches a terminal status", async () => {
+			const fileCount = 7;
 			let uploadCount = 0;
-			const jsonFilesCount = 7;
-			const cappedPollAttempts = 2;
+
+			const pollCounts = new Map<string, number>();
+			const terminalStatuses = ["finished", "cancelled", "failed"];
 
 			mockPool
-				.intercept({
-					path: `/api2/projects/${projectId}/files/upload`,
-					method: "POST",
-				})
+				.intercept({ path: uploadPath, method: "POST" })
 				.reply(() => {
 					uploadCount++;
 
@@ -213,64 +304,68 @@ describe("LokaliseUpload: uploadTranslations()", () => {
 						statusCode: 200,
 						data: {
 							process: {
-								process_id: `${processIdPrefix}-${uploadCount}`,
-								// Missing status should be assumed as queued
+								process_id: `poll-process-${uploadCount}`,
+								// Status intentionally missing.
 							},
 						},
 					};
 				})
-				.times(jsonFilesCount);
-
-			let pollAttempts = 0;
+				.times(fileCount);
 
 			mockPool
 				.intercept({
 					method: "GET",
-					path: /api2\/projects\/.+\/processes\/.+/,
+					path: /^\/api2\/projects\/[^/]+\/processes\/[^/?]+/,
 				})
-				.reply((req) => {
-					pollAttempts++;
+				.reply(({ path: requestPath }) => {
+					const id = requestPath.split("?")[0]?.split("/").at(-1);
 
-					const processId = req.path.split("/").pop();
+					if (!id) {
+						throw new Error("Missing process ID in request.");
+					}
 
+					const count = (pollCounts.get(id) ?? 0) + 1;
+					pollCounts.set(id, count);
+
+					const index = Number(id.split("-").at(-1));
 					const status =
-						pollAttempts > cappedPollAttempts
-							? ["finished", "cancelled", "failed"][pollAttempts % 3]
-							: "queued";
+						count === 1
+							? "queued"
+							: terminalStatuses[index % terminalStatuses.length];
 
 					return {
 						statusCode: 200,
 						data: {
 							process: {
-								process_id: processId,
+								process_id: id,
 								status,
 							},
 						},
 					};
 				})
-				.times(jsonFilesCount + cappedPollAttempts);
+				.times(fileCount * 2);
 
-			const { processes, errors } = await lokaliseUpload.uploadTranslations({
+			const { processes, errors } = await uploader.uploadTranslations({
 				collectFileParams: {
 					inputDirs: ["./locales"],
 					extensions: [".json"],
 				},
 				processUploadFileParams: {
 					pollStatuses: true,
-					pollInitialWaitTime: 500,
+					pollInitialWaitTime: 1,
 					pollMaximumWaitTime: 5000,
 				},
 			});
 
-			expect(uploadCount).toEqual(jsonFilesCount);
-			expect(processes).toHaveLength(jsonFilesCount);
+			expect(uploadCount).toBe(fileCount);
+			expect(processes).toHaveLength(fileCount);
 			expect(errors).toHaveLength(0);
+			expect(pollCounts.size).toBe(fileCount);
 
 			for (const process of processes) {
-				expect(["finished", "cancelled", "failed"]).toContain(process.status);
+				expect(terminalStatuses).toContain(process.status);
+				expect(pollCounts.get(process.process_id)).toBe(2);
 			}
-
-			expect(pollAttempts).toEqual(cappedPollAttempts + jsonFilesCount);
 		});
 	});
 });

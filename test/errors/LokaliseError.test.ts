@@ -40,6 +40,16 @@ describe("LokaliseError", () => {
 			const error = new LokaliseError("Error without details", 400);
 			expect(error.details).toBeUndefined();
 		});
+
+		it("should be an Error with the correct name", () => {
+			const error = new LokaliseError("Sample error");
+
+			expect(error).toBeInstanceOf(Error);
+			expect(error).toBeInstanceOf(LokaliseError);
+			expect(error.name).toBe("LokaliseError");
+			expect(error.message).toBe("Sample error");
+			expect(error.stack).toBeDefined();
+		});
 	});
 
 	describe("Edge Cases", () => {
@@ -50,7 +60,7 @@ describe("LokaliseError", () => {
 			expect(error.details).toBeUndefined();
 		});
 
-		it("should handle null or invalid details gracefully", () => {
+		it("should handle explicitly undefined details", () => {
 			const error = new LokaliseError(
 				"Error with invalid details",
 				400,
@@ -60,6 +70,20 @@ describe("LokaliseError", () => {
 			expect(String(error)).toEqual(
 				"LokaliseError: Error with invalid details (Code: 400)",
 			);
+		});
+
+		it("should include error code zero in the string representation", () => {
+			const error = new LokaliseError("Zero code", 0);
+
+			expect(error.code).toBe(0);
+			expect(String(error)).toBe("LokaliseError: Zero code (Code: 0)");
+		});
+
+		it("should omit empty details from the string representation", () => {
+			const error = new LokaliseError("Empty details", 400, {});
+
+			expect(error.details).toEqual({});
+			expect(String(error)).toBe("LokaliseError: Empty details (Code: 400)");
 		});
 	});
 });

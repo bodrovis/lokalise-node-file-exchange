@@ -1,25 +1,18 @@
 import type { LokaliseError as ILokaliseError } from "../interfaces/LokaliseError.js";
 
 /**
- * Represents a custom error.
+ * Represents an error occurring during Lokalise operations.
  */
 export class LokaliseError extends Error implements ILokaliseError {
-	/**
-	 * The error code representing the type of Lokalise API error.
-	 */
-	code?: number | undefined;
-
-	/**
-	 * Additional details about the error.
-	 */
+	code?: number;
 	details?: Record<string, string | number | boolean>;
 
 	/**
-	 * Creates a new instance of LokaliseError.
+	 * Creates a LokaliseError instance.
 	 *
-	 * @param message - The error message.
-	 * @param code - The error code (optional).
-	 * @param details - Optional additional details about the error.
+	 * @param message - Error description.
+	 * @param code - Optional error code.
+	 * @param details - Optional additional error information.
 	 */
 	constructor(
 		message: string,
@@ -27,30 +20,36 @@ export class LokaliseError extends Error implements ILokaliseError {
 		details?: Record<string, string | number | boolean>,
 	) {
 		super(message);
-		this.code = code;
 
-		if (details) {
+		this.name = "LokaliseError";
+
+		if (code !== undefined) {
+			this.code = code;
+		}
+
+		if (details !== undefined) {
 			this.details = details;
 		}
 	}
 
 	/**
-	 * Returns a string representation of the error, including code and details.
-	 *
-	 * @returns The formatted error message.
+	 * Returns the error message with optional code and details.
 	 */
 	override toString(): string {
-		let baseMessage = `LokaliseError: ${this.message}`;
-		if (this.code) {
-			baseMessage += ` (Code: ${this.code})`;
+		let message = `${this.name}: ${this.message}`;
+
+		if (this.code !== undefined) {
+			message += ` (Code: ${this.code})`;
 		}
-		if (this.details) {
-			const formattedDetails = Object.entries(this.details)
+
+		if (this.details && Object.keys(this.details).length > 0) {
+			const details = Object.entries(this.details)
 				.map(([key, value]) => `${key}: ${value}`)
 				.join(", ");
 
-			baseMessage += ` | Details: ${formattedDetails}`;
+			message += ` | Details: ${details}`;
 		}
-		return baseMessage;
+
+		return message;
 	}
 }

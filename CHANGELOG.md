@@ -1,5 +1,9 @@
 # Changelog
 
+## 6.0.0 (14-Oct-2026)
+
+* This is a major rewrite of the package with various enhancements. While it should not introduce any breaking changes, certain edge cases might be handled slightly different
+
 ## 5.2.0 (02-Sep-2026)
 
 * Various code improvements
