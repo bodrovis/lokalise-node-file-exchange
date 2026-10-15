@@ -157,7 +157,7 @@ export abstract class LokaliseFileExchange {
 	 * @param args - Additional values to pass to the logger.
 	 */
 	protected logMsg(level: LogLevel, ...args: unknown[]): void {
-		this.logger(
+		this.logger.withParams(
 			{ level, threshold: this.logThreshold, withTimestamp: true },
 			...args,
 		);

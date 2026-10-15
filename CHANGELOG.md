@@ -1,5 +1,9 @@
 # Changelog
 
+## 6.0.1 (15-Oct-2026)
+
+* Use kliedz v3
+
 ## 6.0.0 (14-Oct-2026)
 
 * This is a major rewrite of the package with various enhancements. While it should not introduce any breaking changes, certain edge cases might be handled slightly different
