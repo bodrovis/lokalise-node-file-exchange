@@ -1,52 +1,57 @@
 # Changelog
 
+## 6.0.2 (30-Oct-2026)
+
+* Use Lokalise SDK 17
+* Bump yauzl dependency version to 3.4.0
+
 ## 6.0.1 (15-Oct-2026)
 
-* Use kliedz v3
+- Use kliedz v3
 
 ## 6.0.0 (14-Oct-2026)
 
-* This is a major rewrite of the package with various enhancements. While it should not introduce any breaking changes, certain edge cases might be handled slightly different
+- This is a major rewrite of the package with various enhancements. While it should not introduce any breaking changes, certain edge cases might be handled slightly different
 
 ## 5.2.0 (02-Sep-2026)
 
-* Various code improvements
-* Update tests
+- Various code improvements
+- Update tests
 
 ## 5.1.0 (08-May-2026)
 
-* Use TypeScript 7
+- Use TypeScript 7
 
 ## 5.0.0 (08-May-2026)
 
-* **Breaking change**: require Node 22+
-* Test with Node 26
+- **Breaking change**: require Node 22+
+- Test with Node 26
 
 ## 4.2.0 (06-Apr-2026)
 
-* Update dependencies
+- Update dependencies
 
 ## 4.1.0 (26-Feb-2026)
 
-* Code enhancements
-* Increased test coverage
+- Code enhancements
+- Increased test coverage
 
 ## 4.0.3 (14-Jan-2026)
 
-* Minor code changes, dependency updates
+- Minor code changes, dependency updates
 
 ## 4.0.2 (10-Nov-2025)
 
-* Introduce worker pools for process checks to respect parallel requests limits
-* Added jitter for retry params
+- Introduce worker pools for process checks to respect parallel requests limits
+- Added jitter for retry params
 
 ## 4.0.1 (07-Nov-2025)
 
-* Fixed edge cases related to process polling and async downloads
+- Fixed edge cases related to process polling and async downloads
 
 ## 4.0.0 (23-Jul-2025)
 
-* **Breaking change**: require Node 20+
+- **Breaking change**: require Node 20+
 
 ## 3.1.0 (11-May-2025)
 
@@ -54,14 +59,14 @@
 
 ```js
 const lokaliseUploader = new LokaliseUpload(
-  {
-    apiKey,
-  },
-  {
-    projectId,
-    logThreshold: "debug", // Print all debug messages (might generate a lot of output, default is "info", other supported values are "error", "warn", "silent")
-    logColor: true, // Don't use colorized output (default is false)
-  },
+	{
+		apiKey,
+	},
+	{
+		projectId,
+		logThreshold: "debug", // Print all debug messages (might generate a lot of output, default is "info", other supported values are "error", "warn", "silent")
+		logColor: true, // Don't use colorized output (default is false)
+	},
 );
 ```
 
@@ -89,15 +94,15 @@ excludePatterns: ["nested", "backup"],
 
 ```js
 const { processes, errors } = await lokaliseUpload.uploadTranslations({
-  collectFileParams: {
-    inputDirs: ["./locales"],
-    extensions: [".json", ".weird_json"],
-  },
-  uploadFileParams: { replace_modified: true },
-  processUploadFileParams: {
-    filenameInferer: async (filePath) =>
-      path.extname(filePath) === ".weird_json" ? "en.json" : "",
-  },
+	collectFileParams: {
+		inputDirs: ["./locales"],
+		extensions: [".json", ".weird_json"],
+	},
+	uploadFileParams: { replace_modified: true },
+	processUploadFileParams: {
+		filenameInferer: async (filePath) =>
+			path.extname(filePath) === ".weird_json" ? "en.json" : "",
+	},
 });
 ```
 

@@ -1,6 +1,5 @@
 import { ClientParams, DownloadBundle, DownloadFileParams, LokaliseApi, QueuedProcess, UploadFileParams } from "@lokalise/node-api";
 import { LogFunction, LogLevel, LogThreshold } from "kliedz";
-//#region lib/interfaces/LokaliseError.d.ts
 /**
  * Describes the structure of a Lokalise error.
  */
@@ -18,8 +17,6 @@ interface LokaliseError$1 {
    */
   details?: Record<string, string | number | boolean>;
 }
-//#endregion
-//#region lib/errors/LokaliseError.d.ts
 /**
  * Represents an error occurring during Lokalise operations.
  */
@@ -39,8 +36,6 @@ export declare class LokaliseError extends Error implements LokaliseError$1 {
    */
   toString(): string;
 }
-//#endregion
-//#region lib/interfaces/CollectFileParams.d.ts
 interface CollectFileParams {
   inputDirs?: string[];
   extensions?: string[];
@@ -48,34 +43,24 @@ interface CollectFileParams {
   recursive?: boolean;
   fileNamePattern?: string | RegExp;
 }
-//#endregion
-//#region lib/interfaces/ExtractParams.d.ts
 interface ExtractParams {
   outputDir?: string;
 }
-//#endregion
-//#region lib/interfaces/ProcessDownloadFileParams.d.ts
 interface ProcessDownloadFileParams {
   asyncDownload?: boolean;
   pollInitialWaitTime?: number;
   pollMaximumWaitTime?: number;
   bundleDownloadTimeout?: number;
 }
-//#endregion
-//#region lib/interfaces/DownloadTranslationParams.d.ts
 interface DownloadTranslationParams {
   downloadFileParams: DownloadFileParams;
   extractParams?: ExtractParams;
   processDownloadFileParams?: ProcessDownloadFileParams;
 }
-//#endregion
-//#region lib/interfaces/FileUploadError.d.ts
 interface FileUploadError {
   file: string;
   error: unknown;
 }
-//#endregion
-//#region lib/interfaces/LokaliseExchangeConfig.d.ts
 interface LokaliseExchangeConfig {
   projectId: string;
   useOAuth2?: boolean;
@@ -83,19 +68,13 @@ interface LokaliseExchangeConfig {
   logThreshold?: LogThreshold;
   logColor?: boolean;
 }
-//#endregion
-//#region lib/interfaces/PartialUploadFileParams.d.ts
 type UploadFileParamsBase = Omit<UploadFileParams, "data" | "filename" | "lang_iso">;
 interface PartialUploadFileParams extends UploadFileParamsBase {}
-//#endregion
-//#region lib/interfaces/ProcessedFile.d.ts
 interface ProcessedFile {
   data: string;
   filename: string;
   lang_iso: string;
 }
-//#endregion
-//#region lib/interfaces/ProcessUploadFileParams.d.ts
 type Inferer = (filePath: string) => Promise<string> | string;
 interface ProcessUploadFileParams {
   languageInferer?: Inferer;
@@ -104,14 +83,10 @@ interface ProcessUploadFileParams {
   pollInitialWaitTime?: number;
   pollMaximumWaitTime?: number;
 }
-//#endregion
-//#region lib/interfaces/QueuedUploadProcessesWithErrors.d.ts
 interface QueuedUploadProcessesWithErrors {
   processes: QueuedProcess[];
   errors: FileUploadError[];
 }
-//#endregion
-//#region lib/interfaces/RetryParams.d.ts
 interface RetryParams {
   maxRetries: number;
   initialSleepTime: number;
@@ -119,15 +94,11 @@ interface RetryParams {
   jitterRatio: number;
   rng: () => number;
 }
-//#endregion
-//#region lib/interfaces/UploadTranslationParams.d.ts
 interface UploadTranslationParams {
   uploadFileParams?: PartialUploadFileParams;
   collectFileParams?: CollectFileParams;
   processUploadFileParams?: ProcessUploadFileParams;
 }
-//#endregion
-//#region lib/services/LokaliseFileExchange.d.ts
 /**
  * A utility class for exchanging files with the Lokalise API.
  */
@@ -206,8 +177,6 @@ declare abstract class LokaliseFileExchange {
    */
   protected logMsg(level: LogLevel, ...args: unknown[]): void;
 }
-//#endregion
-//#region lib/services/LokaliseDownload.d.ts
 /**
  * Handles downloading and extracting translation files from Lokalise.
  */
@@ -303,8 +272,6 @@ export declare class LokaliseDownload extends LokaliseFileExchange {
    */
   protected fetchBundleURLAsync(downloadFileParams: DownloadFileParams, processParams: Required<ProcessDownloadFileParams>): Promise<string>;
 }
-//#endregion
-//#region lib/services/LokaliseUpload.d.ts
 /**
  * Handles uploading translation files to Lokalise.
  */
@@ -351,6 +318,5 @@ export declare class LokaliseUpload extends LokaliseFileExchange {
    */
   private logUploadSummary;
 }
-//#endregion
 export type { CollectFileParams, DownloadTranslationParams, ExtractParams, FileUploadError, LokaliseExchangeConfig, PartialUploadFileParams, ProcessDownloadFileParams, ProcessUploadFileParams, ProcessedFile, QueuedUploadProcessesWithErrors, RetryParams, UploadTranslationParams };
 //# sourceMappingURL=index.d.mts.map

@@ -10,7 +10,7 @@ import { setTimeout } from "node:timers/promises";
 import { ApiError, LokaliseApi, LokaliseApiOAuth } from "@lokalise/node-api";
 import { logWithColor, logWithLevel } from "kliedz";
 
-//#region lib/errors/LokaliseError.ts
+// lib/errors/LokaliseError.ts
 /**
 * Represents an error occurring during Lokalise operations.
 */
@@ -44,8 +44,7 @@ var LokaliseError = class extends Error {
 	}
 };
 
-//#endregion
-//#region lib/downloaders/bundle-downloader.ts
+// lib/downloaders/bundle-downloader.ts
 const MAX_TIMEOUT_MS$1 = 2147483647;
 /**
 * Validates the bundle download timeout.
@@ -144,8 +143,7 @@ function parseBundleUrl(value) {
 	return url;
 }
 
-//#endregion
-//#region lib/extractors/zip-extractor.ts
+// lib/extractors/zip-extractor.ts
 const MAX_ENTRIES = 1e4;
 const MAX_ENTRY_BYTES = 104857600;
 const MAX_TOTAL_BYTES = 1073741824;
@@ -271,8 +269,7 @@ async function ensureSafeDirectory(root, directory) {
 	}
 }
 
-//#endregion
-//#region lib/constants.ts
+// lib/constants.ts
 const DEFAULT_RETRY_PARAMS = {
 	maxRetries: 3,
 	initialSleepTime: 1e3,
@@ -287,8 +284,7 @@ const FINISHED_STATUSES = /* @__PURE__ */ new Set([
 ]);
 const RETRYABLE_CODES = /* @__PURE__ */ new Set([408, 429]);
 
-//#endregion
-//#region lib/utils/concurrency.ts
+// lib/utils/concurrency.ts
 /**
 * Runs asynchronous tasks with limited concurrency.
 *
@@ -327,14 +323,12 @@ async function runWithConcurrencyLimit(items, limit, worker) {
 	return results;
 }
 
-//#endregion
-//#region lib/utils/process-status.ts
+// lib/utils/process-status.ts
 function isFinishedStatus(status) {
 	return status != null && FINISHED_STATUSES.has(status);
 }
 
-//#endregion
-//#region lib/processes/poll-lokalise-processes.ts
+// lib/processes/poll-lokalise-processes.ts
 const FAST_FOLLOW_DELAY_MS = 200;
 const MAX_TIMER_DELAY_MS = 2147483647;
 /**
@@ -469,8 +463,7 @@ function validatePollingParams({ initialWaitTime, maxWaitTime, concurrency = 6 }
 	if (!Number.isSafeInteger(concurrency) || concurrency <= 0) throw new LokaliseError("concurrency must be a positive safe integer.");
 }
 
-//#endregion
-//#region lib/utils/retry.ts
+// lib/utils/retry.ts
 const MAX_TIMEOUT_MS = 2147483647;
 const MAX_ALLOWED_RETRIES = 10;
 /**
@@ -551,8 +544,7 @@ function resolveRetryParams(params) {
 	};
 }
 
-//#endregion
-//#region lib/services/LokaliseFileExchange.ts
+// lib/services/LokaliseFileExchange.ts
 /**
 * A utility class for exchanging files with the Lokalise API.
 */
@@ -664,8 +656,7 @@ var LokaliseFileExchange = class {
 	}
 };
 
-//#endregion
-//#region lib/services/LokaliseDownload.ts
+// lib/services/LokaliseDownload.ts
 /**
 * Handles downloading and extracting translation files from Lokalise.
 */
@@ -838,8 +829,7 @@ var LokaliseDownload = class LokaliseDownload extends LokaliseFileExchange {
 	}
 };
 
-//#endregion
-//#region lib/collectors/file-collector.ts
+// lib/collectors/file-collector.ts
 const SKIPPABLE_ERRORS = /* @__PURE__ */ new Set([
 	"ENOENT",
 	"EACCES",
@@ -935,8 +925,7 @@ function testRegex(regex, value) {
 	return regex.test(value);
 }
 
-//#endregion
-//#region lib/processors/upload-file.ts
+// lib/processors/upload-file.ts
 /**
 * Prepares a file for uploading to Lokalise.
 *
@@ -981,8 +970,7 @@ async function inferLanguageCode(file, filename, params) {
 	return lang;
 }
 
-//#endregion
-//#region lib/services/LokaliseUpload.ts
+// lib/services/LokaliseUpload.ts
 /**
 * Handles uploading translation files to Lokalise.
 */
@@ -1107,6 +1095,5 @@ var LokaliseUpload = class LokaliseUpload extends LokaliseFileExchange {
 	}
 };
 
-//#endregion
 export { LokaliseDownload, LokaliseError, LokaliseUpload };
 //# sourceMappingURL=index.mjs.map

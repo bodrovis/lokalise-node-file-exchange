@@ -36,12 +36,12 @@ const apiKey = "YOUR_LOKALISE_API_TOKEN";
 const projectId = "YOUR_LOKALISE_PROJECT_ID";
 
 const lokaliseUploader = new LokaliseUpload(
-  {
-    apiKey,
-  },
-  {
-    projectId,
-  },
+	{
+		apiKey,
+	},
+	{
+		projectId,
+	},
 );
 
 // Upload all files from the `./locales` directory:
@@ -103,13 +103,13 @@ If you're using [OAuth2 flow](https://lokalise.github.io/node-lokalise-api/addit
 
 ```js
 const lokaliseUploader = new LokaliseUpload(
-  { apiKey },
-  { projectId, useOAuth2: true },
+	{ apiKey },
+	{ projectId, useOAuth2: true },
 );
 // OR
 const lokaliseDownloader = new LokaliseDownload(
-  { apiKey },
-  { projectId, useOAuth2: true },
+	{ apiKey },
+	{ projectId, useOAuth2: true },
 );
 ```
 
@@ -140,9 +140,9 @@ To download translation files from Lokalise into your project, use the `download
 
 ```js
 await lokaliseDownloader.downloadTranslations({
-  downloadFileParams,
-  extractParams,
-  processDownloadFileParams,
+	downloadFileParams,
+	extractParams,
+	processDownloadFileParams,
 });
 ```
 
@@ -205,9 +205,9 @@ To upload translation files from Lokalise into your project, use the `uploadTran
 
 ```js
 const { processes, errors } = await lokaliseUploader.uploadTranslations({
-  uploadFileParams,
-  collectFileParams,
-  processUploadFileParams,
+	uploadFileParams,
+	collectFileParams,
+	processUploadFileParams,
 });
 ```
 
@@ -260,9 +260,9 @@ Suppose the file's first key contains the language code:
 
 ```json
 {
-  "en": {
-    "key": "translation value"
-  }
+	"en": {
+		"key": "translation value"
+	}
 }
 ```
 
@@ -270,17 +270,17 @@ You can infer the language with:
 
 ```js
 const { processes, errors } = await lokaliseUpload.uploadTranslations({
-  processUploadFileParams: {
-    languageInferer: async (filePath) => {
-      // Provide any conditions as needed
-      if (path.extname(filePath) === ".json") {
-        const fileData = await fs.promises.readFile(filePath);
-        const jsonContent = JSON.parse(fileData.toString());
-        return Object.keys(jsonContent)[0];
-      }
-      return "";
-    },
-  },
+	processUploadFileParams: {
+		languageInferer: async (filePath) => {
+			// Provide any conditions as needed
+			if (path.extname(filePath) === ".json") {
+				const fileData = await fs.promises.readFile(filePath);
+				const jsonContent = JSON.parse(fileData.toString());
+				return Object.keys(jsonContent)[0];
+			}
+			return "";
+		},
+	},
 });
 ```
 
@@ -290,16 +290,16 @@ If translation files are stored in language-named folders (`/locales/en/main.jso
 
 ```js
 const { processes, errors } = await lokaliseUploader.uploadTranslations({
-  processUploadFileParams: {
-    languageInferer: (filePath) => {
-      try {
-        const parentDir = path.dirname(filePath);
-        return path.basename(parentDir);
-      } catch (_error) {
-        return "";
-      }
-    },
-  },
+	processUploadFileParams: {
+		languageInferer: (filePath) => {
+			try {
+				const parentDir = path.dirname(filePath);
+				return path.basename(parentDir);
+			} catch (_error) {
+				return "";
+			}
+		},
+	},
 });
 ```
 
@@ -318,11 +318,11 @@ To ensure the client waits until all files are fully processed by Lokalise, you 
 
 ```js
 const { processes, errors } = await lokaliseUploader.uploadTranslations({
-  processUploadFileParams: {
-    pollStatuses: true,
-    pollInitialWaitTime: 2e3,
-    pollMaximumWaitTime: 150e3,
-  },
+	processUploadFileParams: {
+		pollStatuses: true,
+		pollInitialWaitTime: 2e3,
+		pollMaximumWaitTime: 150e3,
+	},
 });
 ```
 
